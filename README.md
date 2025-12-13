@@ -20,10 +20,10 @@ The goal is to maintain a reproducible, cross-platform environment with one-comm
 
 ```txt
 
-dotfiles/
+envCross_dotfiles/
 ├─ install.ps1        # Windows installer (PowerShell + Scoop)
 ├─ install.nu         # Nushell installer (Windows + Linux)
-├─ install.sh         # POSIX sh installer (Linux + macOS)
+├─ install.sh         # POSIX sh installer (Linux)
 ├─ nushell/           # Nushell configuration
 ├─ nvim/              # Neovim configuration
 ├─ yazi/              # Yazi configuration
@@ -36,7 +36,7 @@ All installers assume you execute commands from the repository root:
 
 ```sh
 
-cd ./dotfiles
+cd ./envCross_dotfiles
 
 ```
 
