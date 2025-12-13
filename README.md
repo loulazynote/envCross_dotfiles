@@ -71,9 +71,8 @@ irm get.scoop.sh | iex
 ### 1.2 Clone the Dotfiles Repo
 
 ```powershell
-cd $HOME
-git clone https://github.com/<your-user>/dotfiles.git
-cd dotfiles
+git clone https://github.com/loulazynote/envCross_dotfiles.git
+cd envCross_dotfiles
 ```
 
 ---
@@ -110,7 +109,7 @@ cd dotfiles
 Backups are stored under:
 
 ```sh
-dotfiles/backup/YYYYMMDD-HHMMSS/
+envCross_dotfiles/backup/YYYYMMDD-HHMMSS/
 ```
 
 ---
