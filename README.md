@@ -2,11 +2,11 @@
 
 This repository contains cross-platform configuration files for the following tools:
 
-- **WezTerm**
-- **Nushell**
-- **Yazi**
-- **Neovim**
-- **eza** (via shell aliases)
+- [**WezTerm**](https://github.com/wezterm/wezterm)
+- [**Nushell**](https://github.com/nushell/nushell)
+- [**Yazi**](https://github.com/sxyazi/yazi)
+- [**Neovim**](https://github.com/neovim/neovim)
+- [**eza**](https://github.com/eza-community/eza) (via shell aliases)
 
 The goal is to maintain a reproducible, cross-platform environment with one-command setup on:
 
