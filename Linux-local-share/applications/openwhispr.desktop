@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=OpenWhispr
+Comment=Voice-to-text dictation with local and cloud AI models
+Exec=/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/secrets/run-openwhispr.sh %U
+Icon=openwhispr
+Type=Application
+Categories=Utility;AudioVideo;
+StartupWMClass=open-whispr
+MimeType=x-scheme-handler/openwhispr;

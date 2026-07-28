@@ -634,15 +634,18 @@ def main [
     let shared_hooks = ($ai_root  | path join "hooks")
     let claude_home = ($home | path join ".claude")
     let codex_home = ($home | path join ".codex")
+    let grok_home = ($home | path join ".grok")
     let opencode_home = ($user_config_home | path join "opencode")
     let gemini_home = ($home | path join ".gemini")
     let has_claude = (check_cmd "claude")
     let has_codex = (check_cmd "codex")
+    let has_grok = (check_cmd "grok")
     let has_opencode = (check_cmd "opencode")
     let has_gemini = (check_cmd "gemini")
     let has_hermes = (check_cmd "hermes")
     let should_link_claude = $has_claude and (should_install "claude-code" $skip_list $only_list)
     let should_link_codex = $has_codex and (should_install "codex" $skip_list $only_list)
+    let should_link_grok = $has_grok and (should_install "grok" $skip_list $only_list)
     let should_link_opencode = $has_opencode and (should_install "opencode" $skip_list $only_list)
     let should_link_gemini = $has_gemini and (should_install "gemini-cli" $skip_list $only_list)
     let should_link_hermes = $has_hermes and (should_install "hermes-agent" $skip_list $only_list)
@@ -701,6 +704,15 @@ def main [
             {src: $shared_skills,  dest: ($codex_home | path join "skills"),      is_file: false, name: "Codex skills"}
         ]
         $targets ++= (existing_targets $codex_files)
+    }
+
+    if $should_link_grok {
+        $targets ++= (existing_targets [{
+            src: ($ai_root | path join ".grok" | path join "config.toml")
+            dest: ($grok_home | path join "config.toml")
+            is_file: true
+            name: "Grok config.toml"
+        }])
     }
 
     if $should_link_opencode {

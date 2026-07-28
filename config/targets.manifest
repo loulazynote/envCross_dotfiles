@@ -36,6 +36,7 @@ ai|ai|codex|codex||false||$HOME/.codex
 ai|ai|gemini-cli|||false|ai-assistants/.gemini|$HOME/.gemini
 ai|ai|hermes-agent|hermes||false||$HOME/.hermes
 ai|ai|opencode|||false||$HOME/.config/opencode
+ai|ai|grok|grok||false|ai-assistants/.grok/config.toml|$HOME/.grok/config.toml
 ai|ai|cc-switch|||false|ai-assistants/.cc-switch/settings.json|$HOME/.cc-switch/settings.json
 core|shared|tock|||false|tock|tock
 config|shared|gitconfig|||false|.gitconfig|$HOME/.gitconfig
@@ -85,3 +86,4 @@ config|linux|vicinae|||false|Linux-config/vicinae|vicinae
 config|linux|vicinae-bitwarden|||false|Linux-config/vicinae-extensions/bitwarden|$HOME/.local/share/vicinae/extensions/bitwarden
 config|linux|wireplumber|||false|Linux-config/wireplumber|wireplumber
 config|linux|kitty-desktop|||false|Linux-local-share/applications/kitty.desktop|$HOME/.local/share/applications/kitty.desktop
+config|linux|openwhispr-desktop|||false|Linux-local-share/applications/openwhispr.desktop|$HOME/.local/share/applications/openwhispr.desktop

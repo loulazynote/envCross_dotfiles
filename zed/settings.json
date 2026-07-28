@@ -98,6 +98,11 @@
     "dock": "right"
   },
   "context_servers": {
+    "crawl4ai": {
+      "command": {
+        "path": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
+      }
+    },
     "code-review-graph": {
       "command": "uvx",
       "args": [
@@ -128,6 +133,11 @@
     "mem0": {
       "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-mem0.sh",
       "args": []
+    },
+    "tavily": {
+      "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh",
+      "args": [],
+      "env": {}
     }
   }
 }

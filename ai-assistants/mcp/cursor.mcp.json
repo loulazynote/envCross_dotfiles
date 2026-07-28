@@ -1,5 +1,8 @@
 {
   "mcpServers": {
+    "crawl4ai": {
+      "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
+    },
     "code-review-graph": {
       "command": "uvx",
       "args": [
@@ -36,8 +39,8 @@
       "args": []
     },
     "tavily": {
-      "type": "http",
-      "url": "https://mcp.tavily.com/mcp/"
+      "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh",
+      "args": []
     }
   }
 }

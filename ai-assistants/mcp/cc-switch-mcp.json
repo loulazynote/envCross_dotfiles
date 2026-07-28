@@ -26,12 +26,27 @@
         "hermes"
       ],
       "config": {
+        "type": "stdio",
         "command": "/home/lou/.local/bin/content-i18n",
         "args": [
           "mcp",
           "--config",
           "/home/lou/Documents/LouStackBase/content-i18n.yaml"
         ]
+      }
+    },
+    "crawl4ai": {
+      "name": "crawl4ai",
+      "enabled": [
+        "claude",
+        "codex",
+        "opencode",
+        "hermes"
+      ],
+      "config": {
+        "type": "stdio",
+        "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh",
+        "args": []
       }
     },
     "exa": {
@@ -56,14 +71,8 @@
       ],
       "config": {
         "type": "stdio",
-        "command": "npx",
-        "args": [
-          "-y",
-          "firecrawl-mcp"
-        ],
-        "env": {
-          "FIRECRAWL_API_KEY": "${env:FIRECRAWL_API_KEY}"
-        }
+        "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-firecrawl.sh",
+        "args": []
       }
     },
     "markitdown": {
@@ -80,7 +89,7 @@
       }
     },
     "mem0": {
-      "name": "@mem0ai/mem0",
+      "name": "mem0",
       "enabled": [
         "claude",
         "codex",
@@ -102,8 +111,23 @@
         "hermes"
       ],
       "config": {
-        "type": "http",
-        "url": "https://mcp.tavily.com/mcp/"
+        "type": "stdio",
+        "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh",
+        "args": []
+      }
+    },
+    "github": {
+      "name": "github",
+      "enabled": [
+        "claude",
+        "codex",
+        "opencode",
+        "hermes"
+      ],
+      "config": {
+        "type": "stdio",
+        "command": "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-github.sh",
+        "args": []
       }
     }
   }

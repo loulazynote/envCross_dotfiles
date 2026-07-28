@@ -132,12 +132,31 @@
       ]
     }
   },
+  "provider": {
+    "nvidia": {
+      "options": {
+        "apiKey": "{env:NVIDIA_API_KEY}"
+      }
+    },
+    "opencode-go": {
+      "options": {
+        "apiKey": "{env:OPENCODE_API_KEY}"
+      }
+    }
+  },
   "mcp": {
     "code-review-graph": {
       "command": [
         "uvx",
         "code-review-graph",
         "serve"
+      ],
+      "enabled": true,
+      "type": "local"
+    },
+    "crawl4ai": {
+      "command": [
+        "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
       ],
       "enabled": true,
       "type": "local"
@@ -174,9 +193,11 @@
       "type": "local"
     },
     "tavily": {
+      "command": [
+        "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh"
+      ],
       "enabled": true,
-      "type": "remote",
-      "url": "https://mcp.tavily.com/mcp/"
+      "type": "local"
     }
   },
   "permission": {

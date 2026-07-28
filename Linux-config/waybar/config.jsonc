@@ -234,17 +234,17 @@
     "on-click": "niri msg action quit"
   },
   "custom/lock": {
-    "format": "",
+    "format": "󰌾",
     "tooltip": false,
     "on-click": "hyprlock"
   },
   "custom/reboot": {
-    "format": "",
+    "format": "󰜉",
     "tooltip": false,
     "on-click": "reboot"
   },
   "custom/power": {
-    "format": "",
+    "format": "󰐥",
     "tooltip": false,
     "on-click": "shutdown now"
   }

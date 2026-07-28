@@ -9,30 +9,48 @@ Canonical non-secret config lives here.
 | `cursor.mcp.json` | Cursor MCP JSON (`mcpServers`) |
 | `ide.mcp.json` | VS Code MCP JSON (`servers`) |
 | `cc-switch-mcp.json` | cc-switch MCP catalog seed, no secrets |
-| `secrets.env.example` | Local secret env template |
 
 ## Secret handling
 
-Do not commit real tokens. Put local secrets in:
+User-managed service secrets live in one Bitwarden Secrets Manager project. Configure its read-only machine account locally:
 
-```bash
-mkdir -p ~/.config/mcp
-cp ai-assistants/mcp/secrets.env.example ~/.config/mcp/secrets.env
-chmod 600 ~/.config/mcp/secrets.env
+```fish
+scripts/secrets/configure.sh
 ```
 
-`run-firecrawl.sh`, `run-github.sh`, and `run-mem0.sh` load `~/.config/mcp/secrets.env` before starting MCP servers. Cursor / VS Code remote headers still need `MEM0_AUTHORIZATION` in the app process environment.
+The access token and project ID are stored in the desktop Secret Service keyring. `scripts/secrets/run.sh` retrieves them and uses `bws run` to inject secrets only into the launched process. Tool-owned OAuth sessions remain in their native stores.
 
-Wrapper scripts parse only the specific variable they need, so values with spaces such as `MEM0_AUTHORIZATION='Token ...'` are safe.
+Required secret names are `FIRECRAWL_API_KEY`, `MEM0_API_KEY`, `TAVILY_API_KEY`, `GITHUB_PERSONAL_ACCESS_TOKEN`, and `CRAWL4AI_API_TOKEN`.
 
-Mem0 uses local stdio (`npx -y @mem0/mcp`) through `run-mem0.sh` to avoid Cursor/Zed OAuth limits. Set `MEM0_API_KEY`; if only `MEM0_AUTHORIZATION='Token ...'` exists, the wrapper derives `MEM0_API_KEY`.
+Codex MCP children lack D-Bus, so wrappers use a local cache:
+
+```fish
+scripts/secrets/sync-mcp-env.sh
+codex
+```
+
+Run the sync command from a desktop session after rotating secrets. `codex` refreshes the cache automatically. Cache path: `~/.cache/envcross/mcp.env` (mode `600`).
+
+Also:
+
+```fish
+opencode
+claude
+with-secrets -- <cmd>
+```
+
+Grok Build reads MCP from `~/.grok/config.toml`, `~/.claude.json`, and `~/.mcp.json`. Keep all three aligned with the stdio wrappers.
+
+Mem0 uses local stdio through `run-mem0.sh`. Set `MEM0_API_KEY`; the wrapper derives its authorization header without putting the token on the process argv.
+
+Tavily uses local stdio through `run-tavily.sh` so BWS can inject `TAVILY_API_KEY`.
 
 `sync-cc-switch-mcp.py` resolves `${env:NAME}` from environment. If an env var is missing, it preserves the existing cc-switch DB value for that field so stored secrets are not erased.
 
 ## Apply
 
-```bash
-bash ./install.sh --no-install \
+```fish
+./install.sh --no-install \
   --only-cursor-mcp \
   --only-cursor-user-mcp \
   --only-vscode-mcp \
@@ -50,4 +68,4 @@ scripts/mcp/sync-cc-switch-mcp.py
 
 ## Zed Firecrawl / MarkItDown
 
-Use custom stdio servers, not Zed MCP extensions, so secrets can stay in `~/.config/mcp/secrets.env` through wrapper scripts. If Zed shows duplicate Firecrawl or MarkItDown servers, uninstall the `mcp-server-firecrawl` and `mcp-server-markitdown` extensions from Zed.
+Use custom stdio servers so Bitwarden can inject secrets through wrapper scripts. If Zed shows duplicate Firecrawl or MarkItDown servers, uninstall the `mcp-server-firecrawl` and `mcp-server-markitdown` extensions from Zed.

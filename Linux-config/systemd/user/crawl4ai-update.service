@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Crawl4AI container
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/var/run/docker.sock
+
+[Service]
+Type=oneshot
+ExecStart=/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/secrets/run.sh -- /usr/bin/docker compose --file /home/lou/Documents/WorkFlow/envCross_dotfiles/Linux-config/docker/crawl4ai/compose.yaml up --detach --remove-orphans --wait --wait-timeout 180
