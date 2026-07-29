@@ -4,5 +4,5 @@ set -euo pipefail
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)/scripts/secrets/mcp-env.sh"
 bws_guard "$@"
 
-export VOICE_AGENT_KEY="${CODEX_PROXY_API_KEY:?Missing CODEX_PROXY_API_KEY}"
+export CUSTOM_CLEANUP_API_KEY="${OPENCODE_API_KEY:?Missing OPENCODE_API_KEY}"
 exec /usr/bin/openwhispr "$@"

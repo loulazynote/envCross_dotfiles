@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=OpenWhispr
-Comment=Voice-to-text dictation with local and cloud AI models
+Comment=Voice-to-text dictation with local and cloud AI models (Vulkan GPU)
 Exec=/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/secrets/run-openwhispr.sh %U
 Icon=openwhispr
 Type=Application
