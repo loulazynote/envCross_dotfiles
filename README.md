@@ -179,7 +179,7 @@ Windows Terminal, WezTerm, Nushell, Neovim, Yazi, MPV, Codex, Lazygit, Yasb, Kom
 | Tool | Target Path |
 |------|-------------|
 | **windows terminal** | `%SCOOP%\apps\windows-terminal\current\settings\settings.json` |
-| **wezterm** | `%USERPROFILE%\.wezterm.lua` |
+| **wezterm** | `%USERPROFILE%\.config\wezterm\wezterm.lua` |
 | **powershell** | `%USERPROFILE%\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` |
 | **nushell** | `%APPDATA%\nushell` |
 | **neovim** | `%LOCALAPPDATA%\nvim` |

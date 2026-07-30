@@ -524,7 +524,7 @@ def main [
         $targets ++= [{
             name: "WezTerm"
             source: ($windows_root | path join "wezterm" | path join "wezterm.lua")
-            dest: ($home | path join ".wezterm.lua")
+            dest: ($user_config_home | path join "wezterm" | path join "wezterm.lua")
             is_file: true
         }]
     }
