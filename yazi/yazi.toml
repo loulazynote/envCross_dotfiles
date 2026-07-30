@@ -104,9 +104,9 @@ prepend_previewers = [
     { url = "*.csv", run = "faster-piper --rely-on-preloader" },
 ]
 prepend_preloaders = [
-    { url = "*/", run = 'faster-piper -- eza -TL=3 --color=always --icons=always --group-directories-first --no-quotes "$1"' },
-    { url = "*.md", run = 'faster-piper -- ~/.config/yazi/scripts/markdown-preview.sh "$1" "$w"' },
-    { url = "*.csv", run = 'faster-piper -- bat -p --color=always --terminal-width=$w "$1"' },
+    { url = "*/", run = 'faster-piper -- if [ "$OS" = "Windows_NT" ]; then eza -la --color=always --icons=always --group-directories-first --no-quotes "$1"; else eza -TL=3 --color=always --icons=always --group-directories-first --no-quotes "$1"; fi' },
+    { url = "*.md", run = 'faster-piper -- if [ "$OS" = "Windows_NT" ]; then cat "$1"; else ~/.config/yazi/scripts/markdown-preview.sh "$1" "$w"; fi' },
+    { url = "*.csv", run = 'faster-piper -- if [ "$OS" = "Windows_NT" ]; then cat "$1"; else bat -p --color=always --terminal-width=$w "$1"; fi' },
 ]
 
 

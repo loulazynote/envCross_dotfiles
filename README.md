@@ -171,7 +171,7 @@ Linux configuration sources live primarily under the `Linux-config/` directory.
 </details>
 
 ### Windows
-Windows terminal, nushell, neovim, yazi, lazygit, yasb, komorebi, and whkd configurations are supported.
+Windows Terminal, WezTerm, Nushell, Neovim, Yazi, MPV, Codex, Lazygit, Yasb, Komorebi, and Whkd configurations are supported.
 
 <details>
 <summary><b>View Windows Configuration Paths</b></summary>
@@ -179,10 +179,13 @@ Windows terminal, nushell, neovim, yazi, lazygit, yasb, komorebi, and whkd confi
 | Tool | Target Path |
 |------|-------------|
 | **windows terminal** | `%SCOOP%\apps\windows-terminal\current\settings\settings.json` |
+| **wezterm** | `%USERPROFILE%\.wezterm.lua` |
 | **powershell** | `%USERPROFILE%\Documents\PowerShell\Microsoft.PowerShell_profile.ps1` |
 | **nushell** | `%APPDATA%\nushell` |
 | **neovim** | `%LOCALAPPDATA%\nvim` |
 | **yazi** | `%APPDATA%\yazi` |
+| **mpv** | `%SCOOP%\persist\mpv\portable_config` |
+| **codex** | `%USERPROFILE%\.codex\config.toml` |
 | **lazygit** | `%LOCALAPPDATA%\lazygit` |
 | **yasb** | `%USERPROFILE%\.config\yasb\config.yaml` |
 | **yasb** | `%USERPROFILE%\.config\yasb\styles.css` |

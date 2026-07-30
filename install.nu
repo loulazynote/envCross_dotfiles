@@ -172,10 +172,17 @@ def main [
             let result = (^powershell -NoProfile -Command $"New-Item -ItemType SymbolicLink -Path '($dest)' -Target '($source)' -Force | Out-Null" | complete)
             if $result.exit_code == 0 {
                 log_info $"Linked: ($name) -> ($dest)"
-            } else {
-                log_error $"Failed to link: ($name)"
-                log_warn "Enable Developer Mode: Settings → For developers → Developer Mode"
+                return
             }
+            if not $is_file {
+                let junction = (^cmd /c mklink /J $dest $source | complete)
+                if $junction.exit_code == 0 {
+                    log_info $"Linked with junction: ($name) -> ($dest)"
+                    return
+                }
+            }
+            log_error $"Failed to link: ($name)"
+            log_warn "Enable Developer Mode: Settings → For developers → Developer Mode"
         } catch {
             log_error $"Failed to link: ($name)"
             log_warn "Enable Developer Mode: Settings → For developers → Developer Mode"
@@ -467,11 +474,14 @@ def main [
 
         let tools = [
             {name: "Windows-Terminal",  pkg: "windows-terminal",  cmd: "wt"}
+            {name: "WezTerm",           pkg: "wezterm",           cmd: "wezterm"}
             {name: "Nushell",           pkg: "nu",                cmd: "nu"}
             {name: "Neovim",            pkg: "neovim",            cmd: "nvim"}
             {name: "Helix",              pkg: "helix",             cmd: "hx"}
             {name: "Zed",                pkg: "zed",               cmd: "zed"}
             {name: "Yazi",              pkg: "yazi",              cmd: "yazi"}
+            {name: "mpv",               pkg: "mpv",               cmd: "mpv"}
+            {name: "yt-dlp",            pkg: "yt-dlp",            cmd: "yt-dlp"}
             {name: "Lazygit",           pkg: "lazygit",           cmd: "lazygit"}
             {name: "Yasb",              pkg: "yasb",              cmd: "yasb"}
             {name: "Komorebi",          pkg: "komorebi",          cmd: "komorebi"}
@@ -479,7 +489,7 @@ def main [
         ]
 
         for tool in $tools {
-            if (should_install ($tool.name | str downcase) $skip_list $only_list) {
+            if (should_install ($tool.name | str lowercase) $skip_list $only_list) {
                 install_tool $tool.name $tool.pkg $tool.cmd $dry_run $force_install
             }
         }
@@ -487,6 +497,7 @@ def main [
 
     # === Step 2: Build targets ===
     mut targets = []
+    let scoop_root = ($env.SCOOP? | default "")
 
     if (should_install "windows-terminal" $skip_list $only_list) {
         mut wt_src = ($windows_root | path join "windows terminal" | path join "settings.json")
@@ -497,7 +508,6 @@ def main [
                 $wt_src = $fallback
             }
         }
-        let scoop_root = ($env.SCOOP? | default "")
         if ($scoop_root | str length) == 0 {
             log_warn "SCOOP env not set; skipping Windows Terminal linking"
         } else {
@@ -507,6 +517,38 @@ def main [
                 dest: ($scoop_root | path join "apps" | path join "windows-terminal" | path join "current" | path join "settings" | path join "settings.json")
                 is_file: true
             }]
+        }
+    }
+
+    if (should_install "wezterm" $skip_list $only_list) {
+        $targets ++= [{
+            name: "WezTerm"
+            source: ($windows_root | path join "wezterm" | path join "wezterm.lua")
+            dest: ($home | path join ".wezterm.lua")
+            is_file: true
+        }]
+    }
+
+    if (should_install "mpv" $skip_list $only_list) {
+        if ($scoop_root | str length) == 0 {
+            log_warn "SCOOP env not set; skipping mpv linking"
+        } else {
+            let mpv_source = ($windows_root | path join "mpv")
+            let mpv_config = ($scoop_root | path join "persist" | path join "mpv" | path join "portable_config")
+            $targets ++= [
+                {
+                    name: "mpv config"
+                    source: ($mpv_source | path join "mpv.conf")
+                    dest: ($mpv_config | path join "mpv.conf")
+                    is_file: true
+                }
+                {
+                    name: "mpv profiles"
+                    source: ($mpv_source | path join "profiles.conf")
+                    dest: ($mpv_config | path join "profiles.conf")
+                    is_file: true
+                }
+            ]
         }
     }
 
@@ -696,7 +738,7 @@ def main [
         }
     }
 
-    let codex_config = ($ai_root | path join ".codex" | path join "config.toml")
+    let codex_config = ($windows_root | path join "codex" | path join "config.toml")
     if $should_link_codex {
         let codex_files = [
             {src: $shared_agents,  dest: ($codex_home | path join "AGENTS.md"),   is_file: true,  name: "Codex AGENTS.md"}
