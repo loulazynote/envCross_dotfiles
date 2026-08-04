@@ -114,15 +114,7 @@ def strip_llm_wrapper(text: str) -> str:
 
 
 def write_text_atomic(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` atomically as UTF-8.
-
-    Path.write_text() truncates the destination before encoding the string —
-    a UnicodeEncodeError (or any other failure) partway through leaves a
-    0-byte file, destroying whatever was there before (issue #655). Encode
-    first, write the bytes to a sibling temp file, fsync, then os.replace()
-    so the destination only ever moves from one complete, valid file to
-    another. Preserves the original file's permission bits across the swap.
-    """
+    """Atomically replace a file with UTF-8 text while preserving permissions."""
     data = text.encode("utf-8")
     fd, tmp_name = tempfile.mkstemp(
         dir=str(path.parent), prefix=path.name + ".", suffix=".tmp"
@@ -145,8 +137,7 @@ def write_text_atomic(path: Path, text: str) -> None:
 
 
 def first_nonblank_line(text: str) -> str:
-    """Return the first non-blank line, stripped — used to detect a prose
-    preamble smuggled in ahead of the real content (issue #588)."""
+    """Return the first nonblank line, stripped."""
     for line in text.splitlines():
         if line.strip():
             return line.strip()
@@ -154,10 +145,7 @@ def first_nonblank_line(text: str) -> str:
 
 
 def _write_target(filepath: Path, text: str, backup_path: Path) -> None:
-    """Write to the target file, surfacing the backup location if the write
-    itself fails. write_text_atomic already leaves the target untouched on
-    failure, but the caller still needs to know where the pre-compression
-    original lives instead of being left to guess (issue #652)."""
+    """Write the target and report its verified backup on failure."""
     try:
         write_text_atomic(filepath, text)
     except Exception:
@@ -283,10 +271,7 @@ def compress_file(filepath: Path) -> bool:
     if filepath.stat().st_size > MAX_FILE_SIZE:
         raise ValueError(f"File too large to compress safely (max 500KB): {filepath}")
 
-    # Refuse files that look like they contain secrets or PII. Compressing ships
-    # the raw bytes to the Anthropic API — a third-party boundary — so we fail
-    # loudly rather than silently exfiltrate credentials or keys. Override is
-    # intentional: the user must rename the file if the heuristic is wrong.
+    # Compression sends source text to Anthropic, so reject sensitive paths.
     if is_sensitive_path(filepath):
         raise ValueError(
             f"Refusing to compress {filepath}: filename looks sensitive "
@@ -302,9 +287,7 @@ def compress_file(filepath: Path) -> bool:
         return False
 
     original_text = filepath.read_text(encoding="utf-8", errors="ignore")
-    # Store backup outside the source directory so skill auto-loaders don't
-    # re-ingest the `.original.md` copy as a live file. Mirror the source's
-    # parent-dir name + stem under a platform-aware base to reduce collisions.
+    # Keep backups outside directories scanned by skill auto-loaders.
     backup_dir = backup_dir_for(filepath)
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup_path = backup_dir / (filepath.stem + ".original.md")
@@ -320,9 +303,7 @@ def compress_file(filepath: Path) -> bool:
         print("Aborting to prevent data loss. Please remove or rename the backup file if you want to proceed.")
         return False
 
-    # Split YAML frontmatter off before compression. Claude tends to strip or
-    # rewrite frontmatter despite preserve-structure rules; we keep it verbatim
-    # by removing it from the input and re-prepending it to the output.
+    # Keep frontmatter outside the model round trip.
     frontmatter, body = split_frontmatter(original_text)
     if frontmatter:
         print(f"Detected YAML frontmatter ({len(frontmatter)} chars) — preserving verbatim")
@@ -331,7 +312,6 @@ def compress_file(filepath: Path) -> bool:
         print("❌ Refusing to compress: body is empty after frontmatter removal.")
         return False
 
-    # Step 1: Compress (body only, frontmatter excluded)
     print("Compressing with Claude...")
     compressed_body = call_claude(build_compress_prompt(body))
 
@@ -340,21 +320,16 @@ def compress_file(filepath: Path) -> bool:
         print("   Original file is untouched (no backup created).")
         return False
 
-    # Compare the BODY (not the whole file) — frontmatter is preserved verbatim
-    # and would never change, so identity must be judged on the compressible part.
+    # Compare only content sent for compression.
     if compressed_body.strip() == body.strip():
         print("❌ Compression aborted: output is identical to input.")
         print("   Likely causes: Claude refused, returned the prompt verbatim, or the file is")
         print("   already in caveman form. Original file is untouched (no backup created).")
         return False
 
-    # Reassemble: frontmatter (verbatim) + compressed body
     compressed = frontmatter + compressed_body
 
-    # Save original as backup, then verify the backup readback before
-    # touching the input file. If the filesystem dropped bytes (encoding,
-    # antivirus, disk full), unlink the bad backup and abort instead of
-    # leaving the user with a corrupt backup + compressed primary.
+    # Verify the backup before replacing the source.
     write_text_atomic(backup_path, original_text)
     backup_readback = backup_path.read_text(encoding="utf-8", errors="ignore")
     if backup_readback != original_text:
@@ -367,7 +342,6 @@ def compress_file(filepath: Path) -> bool:
         return False
     _write_target(filepath, compressed, backup_path)
 
-    # Step 2: Validate + Retry
     for attempt in range(MAX_RETRIES):
         print(f"\nValidation attempt {attempt + 1}")
 
@@ -382,7 +356,6 @@ def compress_file(filepath: Path) -> bool:
             print(f"   - {err}")
 
         if attempt == MAX_RETRIES - 1:
-            # Restore original on failure
             _write_target(filepath, original_text, backup_path)
             backup_path.unlink(missing_ok=True)
             print("❌ Failed after retries — original restored")
@@ -398,11 +371,7 @@ def compress_file(filepath: Path) -> bool:
             print("   Skipping this attempt.")
             continue
 
-        # Guard against a prose preamble smuggled in ahead of the real fixed
-        # content (issue #588). Only enforced when the original starts with a
-        # structural anchor (frontmatter `---` or a heading) — plain-prose
-        # first lines get legitimately rewritten by compression, and requiring
-        # them verbatim would reject every valid fix.
+        # Structural anchors expose model-added preambles without rejecting prose rewrites.
         anchor = first_nonblank_line(original_text)
         if anchor.startswith(("---", "#")) and first_nonblank_line(compressed) != anchor:
             print("❌ Fix attempt aborted: output does not start with the original's first line.")
