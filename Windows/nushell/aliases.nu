@@ -3,6 +3,6 @@ alias ytmed  = mpv --profile=medium
 alias ythigh = mpv --profile=high
 alias lg = lazygit
 
-def codex [...args] {
+def --wrapped codex [...args] {
     ^codex --profile windows ...$args
 }
