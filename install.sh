@@ -411,6 +411,9 @@ link_ai_shared_files() {
         codex)
             create_file_link "$shared_agents" "$HOME/.codex/AGENTS.md" "codex-rules"
             create_file_link "$REPO_ROOT/ai-assistants/.codex/config.toml" "$HOME/.codex/config.toml" "codex-config"
+            create_file_link "$REPO_ROOT/ai-assistants/.codex/windows.config.toml" "$HOME/.codex/windows.config.toml" "codex-windows-profile"
+            create_file_link "$REPO_ROOT/ai-assistants/.codex/linux.config.toml" "$HOME/.codex/linux.config.toml" "codex-linux-profile"
+            create_path_link "$REPO_ROOT/ai-assistants/.codex/agents" "$HOME/.codex/agents" "codex-agents"
             create_path_link "$shared_skills" "$HOME/.codex/skills" "codex-skills"
             ;;
         opencode)

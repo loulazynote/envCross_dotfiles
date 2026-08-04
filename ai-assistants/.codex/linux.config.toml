@@ -1,0 +1,97 @@
+[projects."/home/lou/Documents/Cases/2026/scio-ai-backend"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Cases/2026/pebble"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/WorkFlow/envCross_dotfiles"]
+trust_level = "trusted"
+
+[projects."/home/lou/.claude"]
+trust_level = "untrusted"
+
+[projects."/home/lou"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Personal_Notes"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/LazyBlog"]
+trust_level = "untrusted"
+
+[projects."/home/lou/Documents/Practise/DevOps"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/WorkFlow/Rime_Etem_26Keys"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Practise/go-Api"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/WorkFlow/Bopomofo_Eten26_Rime"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Job/LouChangCV"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Job/MyCV/brilliant-cv"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Job/loustack17"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Job/MyCV/typst_invoice"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Cases/time-log"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/WorkFlow/tock"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Practise"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Job/career-ops"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Job/offer-ops"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/Cases/2026/sacred-farm-theme"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/ai-memory"]
+trust_level = "trusted"
+
+[projects."/home/lou/Documents/WorkFlow/openwhispr"]
+trust_level = "trusted"
+
+[mcp_servers.content-i18n]
+type = "stdio"
+command = "/home/lou/.local/bin/content-i18n"
+args = ["mcp", "--config", "/home/lou/Documents/LouStackBase/content-i18n.yaml"]
+
+[mcp_servers.crawl4ai]
+type = "stdio"
+startup_timeout_sec = 45
+command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
+
+[mcp_servers.firecrawl]
+type = "stdio"
+startup_timeout_sec = 45
+command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-firecrawl.sh"
+
+[mcp_servers.mem0]
+type = "stdio"
+startup_timeout_sec = 45
+command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-mem0.sh"
+
+[mcp_servers.markitdown]
+type = "stdio"
+command = "markitdown-mcp"
+
+[mcp_servers.tavily]
+type = "stdio"
+startup_timeout_sec = 45
+command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh"

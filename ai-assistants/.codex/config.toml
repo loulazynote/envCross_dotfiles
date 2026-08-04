@@ -1,96 +1,24 @@
 personality = "pragmatic"
 model = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
-model_instructions_file = "~/.codex/AGENTS.md"
-[projects."/home/lou/Documents/Cases/2026/scio-ai-backend"]
-trust_level = "trusted"
+model_reasoning_effort = "high"
 
-[projects."/home/lou/Documents/Cases/2026/pebble"]
-trust_level = "trusted"
+[features]
+multi_agent = true
 
-[projects."/home/lou/Documents/WorkFlow/envCross_dotfiles"]
-trust_level = "trusted"
-
-[projects."/home/lou/.claude"]
-trust_level = "untrusted"
-
-[projects."/home/lou"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Personal_Notes"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/LazyBlog"]
-trust_level = "untrusted"
-
-[projects."/home/lou/Documents/Practise/DevOps"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/WorkFlow/Rime_Etem_26Keys"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Practise/go-Api"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/WorkFlow/Bopomofo_Eten26_Rime"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Job/LouChangCV"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Job/MyCV/brilliant-cv"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Job/loustack17"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Job/MyCV/typst_invoice"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Cases/time-log"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/WorkFlow/tock"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Practise"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Job/career-ops"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Job/offer-ops"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/Cases/2026/sacred-farm-theme"]
-trust_level = "trusted"
-
-[projects.'D:\CA\Cases\2026\NexusDB']
-trust_level = "trusted"
-
-[projects.'d:\notes\workflow\envcross_dotfiles']
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/ai-memory"]
-trust_level = "trusted"
-
-[projects."/home/lou/Documents/WorkFlow/openwhispr"]
-trust_level = "trusted"
+[agents]
+enabled = true
+default_subagent_model = "gpt-5.6-luna"
+default_subagent_reasoning_effort = "max"
+max_concurrent_threads_per_session = 4
 
 [notice]
 hide_rate_limit_model_nudge = true
-
-[notice.model_migrations]
-"gpt-5.2-codex" = "gpt-5.3-codex"
 
 [tui]
 status_line = ["model-with-reasoning", "five-hour-limit", "git-branch", "project-name", "pull-request-number", "run-state", "context-used", "used-tokens"]
 theme = "dracula"
 session_picker_view = "dense"
 status_line_use_colors = true
-
-[tui.model_availability_nux]
-"gpt-5.5" = 4
 
 [mcp_servers.linear]
 url = "https://mcp.linear.app/mcp"
@@ -111,9 +39,6 @@ enabled = true
 path = "~/.codex/skills/apify-ultimate-scraper/SKILL.md"
 enabled = false
 
-[windows]
-sandbox = "elevated"
-
 [marketplaces.caveman-repo]
 last_updated = "2026-06-02T05:19:42Z"
 last_revision = "655b7d9c5431f822264b7732e9901c5578ac84cf"
@@ -128,35 +53,6 @@ type = "stdio"
 [mcp_servers.code-review-graph.tools.detect_changes_tool]
 approval_mode = "approve"
 
-[mcp_servers.content-i18n]
-type = "stdio"
-command = "/home/lou/.local/bin/content-i18n"
-args = ["mcp", "--config", "/home/lou/Documents/LouStackBase/content-i18n.yaml"]
-
-[mcp_servers.crawl4ai]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
-
 [mcp_servers.exa]
 type = "http"
 url = "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa"
-
-[mcp_servers.firecrawl]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-firecrawl.sh"
-
-[mcp_servers.markitdown]
-type = "stdio"
-command = "markitdown-mcp"
-
-[mcp_servers.mem0]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-mem0.sh"
-
-[mcp_servers.tavily]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh"

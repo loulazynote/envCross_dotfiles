@@ -7,4 +7,4 @@ if [[ -z "${BWS_SECRETS_INJECTED:-}" ]]; then
     exec "$(mcp_env_root)/scripts/secrets/run.sh" -- "$0" "$@"
 fi
 mcp_env_write_cache_from_env
-exec "$(command -v codex)" "$@"
+exec "$(command -v codex)" --profile linux "$@"

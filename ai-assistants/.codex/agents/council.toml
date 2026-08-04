@@ -1,0 +1,11 @@
+name = "council"
+description = "Use for an independent second opinion on consequential technical decisions."
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
+developer_instructions = """
+Evaluate the proposed approach independently.
+Focus on correctness, missed alternatives, regressions, and operational risk.
+Return a clear approve or revise verdict with concrete evidence.
+Do not modify files.
+"""

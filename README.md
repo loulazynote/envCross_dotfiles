@@ -90,6 +90,9 @@ During installation, these files are linked to the appropriate locations for eac
 | **Claude Code** | `ai-assistants/.claude/marketplace/` | `~/.claude/marketplace` |
 | **Codex** | `ai-assistants/AGENTS.md` | `~/.codex/AGENTS.md` |
 | **Codex** | `ai-assistants/.codex/config.toml` | `~/.codex/config.toml` |
+| **Codex** | `ai-assistants/.codex/windows.config.toml` | `~/.codex/windows.config.toml` |
+| **Codex** | `ai-assistants/.codex/linux.config.toml` | `~/.codex/linux.config.toml` |
+| **Codex** | `ai-assistants/.codex/agents/` | `~/.codex/agents` |
 | **Codex** | `ai-assistants/SKILLS/` | `~/.codex/skills` |
 | **OpenCode** | `ai-assistants/AGENTS.md` | `~/.config/opencode/AGENTS.md` |
 | **OpenCode** | `ai-assistants/.opencode/opencode.json` | `~/.config/opencode/opencode.json` |

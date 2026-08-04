@@ -738,12 +738,18 @@ def main [
         }
     }
 
-    let codex_config = ($windows_root | path join "codex" | path join "config.toml")
+    let codex_config = ($ai_root | path join ".codex" | path join "config.toml")
+    let codex_windows_config = ($ai_root | path join ".codex" | path join "windows.config.toml")
+    let codex_linux_config = ($ai_root | path join ".codex" | path join "linux.config.toml")
+    let codex_agents = ($ai_root | path join ".codex" | path join "agents")
     if $should_link_codex {
         let codex_files = [
-            {src: $shared_agents,  dest: ($codex_home | path join "AGENTS.md"),   is_file: true,  name: "Codex AGENTS.md"}
-            {src: $codex_config,   dest: ($codex_home | path join "config.toml"), is_file: true,  name: "Codex config.toml"}
-            {src: $shared_skills,  dest: ($codex_home | path join "skills"),      is_file: false, name: "Codex skills"}
+            {src: $shared_agents,       dest: ($codex_home | path join "AGENTS.md"),            is_file: true,  name: "Codex AGENTS.md"}
+            {src: $codex_config,        dest: ($codex_home | path join "config.toml"),           is_file: true,  name: "Codex config.toml"}
+            {src: $codex_windows_config, dest: ($codex_home | path join "windows.config.toml"), is_file: true,  name: "Codex Windows profile"}
+            {src: $codex_linux_config,  dest: ($codex_home | path join "linux.config.toml"),     is_file: true,  name: "Codex Linux profile"}
+            {src: $codex_agents,        dest: ($codex_home | path join "agents"),                is_file: false, name: "Codex agents"}
+            {src: $shared_skills,       dest: ($codex_home | path join "skills"),                is_file: false, name: "Codex skills"}
         ]
         $targets ++= (existing_targets $codex_files)
     }
