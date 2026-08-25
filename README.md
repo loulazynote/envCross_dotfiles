@@ -47,6 +47,7 @@ This repository centralizes assistant context and tool-specific settings under `
 ```text
 ai-assistants/
 ├── AGENTS.md
+├── AGENTS.12-rules.backup.md
 ├── SKILLS/
 ├── .claude/
 │   ├── CLAUDE.md
@@ -61,6 +62,8 @@ ai-assistants/
 │   └── config.toml
 ├── .gemini/
 │   └── GEMINI.md
+├── .grok/
+│   └── config.toml
 ├── .hermes/
 │   ├── SOUL.md
 │   ├── config.yaml
@@ -92,8 +95,11 @@ During installation, these files are linked to the appropriate locations for eac
 | **Codex** | `ai-assistants/.codex/config.toml` | `~/.codex/config.toml` |
 | **Codex** | `ai-assistants/.codex/windows.config.toml` | `~/.codex/windows.config.toml` |
 | **Codex** | `ai-assistants/.codex/linux.config.toml` | `~/.codex/linux.config.toml` |
+| **Codex** | `ai-assistants/.codex/hooks.json` | `~/.codex/hooks.json` |
 | **Codex** | `ai-assistants/.codex/agents/` | `~/.codex/agents` |
 | **Codex** | `ai-assistants/SKILLS/` | `~/.codex/skills` |
+| **Grok Build** | `ai-assistants/AGENTS.md` | `~/.grok/AGENTS.md` |
+| **Grok Build** | `ai-assistants/.grok/config.toml` | `~/.grok/config.toml` |
 | **OpenCode** | `ai-assistants/AGENTS.md` | `~/.config/opencode/AGENTS.md` |
 | **OpenCode** | `ai-assistants/.opencode/opencode.json` | `~/.config/opencode/opencode.json` |
 | **OpenCode** | `ai-assistants/.opencode/tui.json` | `~/.config/opencode/tui.json` |

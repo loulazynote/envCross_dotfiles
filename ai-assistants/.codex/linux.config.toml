@@ -61,37 +61,5 @@ trust_level = "trusted"
 [projects."/home/lou/Documents/Cases/2026/sacred-farm-theme"]
 trust_level = "trusted"
 
-[projects."/home/lou/Documents/ai-memory"]
-trust_level = "trusted"
-
 [projects."/home/lou/Documents/WorkFlow/openwhispr"]
 trust_level = "trusted"
-
-[mcp_servers.content-i18n]
-type = "stdio"
-command = "/home/lou/.local/bin/content-i18n"
-args = ["mcp", "--config", "/home/lou/Documents/LouStackBase/content-i18n.yaml"]
-
-[mcp_servers.crawl4ai]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
-
-[mcp_servers.firecrawl]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-firecrawl.sh"
-
-[mcp_servers.mem0]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-mem0.sh"
-
-[mcp_servers.markitdown]
-type = "stdio"
-command = "markitdown-mcp"
-
-[mcp_servers.tavily]
-type = "stdio"
-startup_timeout_sec = 45
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh"

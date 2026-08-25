@@ -1,0 +1,50 @@
+{
+  "owners": [
+    "durable_common",
+    "durable_windows",
+    "durable_linux"
+  ],
+  "rules": [
+    {
+      "owner": "durable_common",
+      "files": [
+        "config.toml"
+      ],
+      "patterns": [
+        "*"
+      ]
+    },
+    {
+      "owner": "durable_windows",
+      "files": [
+        "windows.config.toml"
+      ],
+      "patterns": [
+        "*"
+      ]
+    },
+    {
+      "owner": "durable_linux",
+      "files": [
+        "linux.config.toml"
+      ],
+      "patterns": [
+        "*"
+      ]
+    }
+  ],
+  "target_files": {
+    "durable_common": [
+      "config.toml"
+    ],
+    "durable_windows": [
+      "windows.config.toml"
+    ],
+    "durable_linux": [
+      "linux.config.toml"
+    ]
+  },
+  "scope_violation_baseline": [],
+  "scope_violation_ceiling": 0,
+  "allowed_value_conflicts": []
+}

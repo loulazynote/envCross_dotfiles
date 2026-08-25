@@ -20,34 +20,85 @@ mcp_env_root() {
 mcp_env_cache_dir() {
     local dir
     dir=$(dirname -- "$MCP_ENV_CACHE")
-    mkdir -p -- "$dir"
-    chmod 700 -- "$dir" 2>/dev/null || true
+    [[ ! -L "$dir" ]] || return 1
+    if [[ -e "$dir" ]]; then
+        [[ -d "$dir" && -O "$dir" ]] || return 1
+    else
+        mkdir -p -- "$dir" || return 1
+    fi
+    [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || return 1
+    chmod 700 -- "$dir" || return 1
+}
+
+mcp_env_cache_file_is_secure() {
+    local mode links
+    [[ -f "$MCP_ENV_CACHE" && ! -L "$MCP_ENV_CACHE" && -r "$MCP_ENV_CACHE" && -O "$MCP_ENV_CACHE" ]] || return 1
+    mode=$(stat -c '%a' -- "$MCP_ENV_CACHE" 2>/dev/null) || return 1
+    links=$(stat -c '%h' -- "$MCP_ENV_CACHE" 2>/dev/null) || return 1
+    [[ "$links" == 1 ]] || return 1
+    [[ "$mode" =~ ^[0-7]+$ ]] || return 1
+    mode=$((8#$mode))
+    (( (mode & 077) == 0 ))
 }
 
 mcp_env_load_cache() {
-    [[ -f "$MCP_ENV_CACHE" && -r "$MCP_ENV_CACHE" ]] || return 1
-    set -a
-    # shellcheck disable=SC1090
-    source "$MCP_ENV_CACHE"
-    set +a
+    mcp_env_cache_file_is_secure || return 1
+    local line key value index
+    local -a keys=() values=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ -n "$line" && "$line" != *$'\r'* && "$line" == *=* ]] || return 1
+        key=${line%%=*}
+        value=${line#*=}
+        case "$key" in
+            FIRECRAWL_API_KEY|MEM0_API_KEY|MEM0_AUTHORIZATION|CRAWL4AI_API_TOKEN|CRAWL4AI_SECRET_KEY|TAVILY_API_KEY|GITHUB_PERSONAL_ACCESS_TOKEN|OPENCODE_API_KEY|CODEX_PROXY_API_KEY|NVIDIA_API_KEY|BWS_SECRETS_INJECTED)
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+        [[ " ${keys[*]} " != *" $key "* ]] || return 1
+        if [[ "$key" == BWS_SECRETS_INJECTED && "$value" != 1 ]]; then
+            return 1
+        fi
+        keys+=("$key")
+        values+=("$value")
+    done <"$MCP_ENV_CACHE"
+    ((${#keys[@]} > 0)) || return 1
+    for index in "${!keys[@]}"; do
+        printf -v "${keys[index]}" '%s' "${values[index]}"
+        export "${keys[index]}"
+    done
     return 0
 }
 
 mcp_env_write_cache_from_env() {
-    mcp_env_cache_dir
-    local tmp key
-    tmp=$(mktemp -- "$MCP_ENV_CACHE.XXXXXX")
     umask 077
+    mcp_env_cache_dir || return 1
+    if [[ -e "$MCP_ENV_CACHE" || -L "$MCP_ENV_CACHE" ]]; then
+        mcp_env_cache_file_is_secure || return 1
+    fi
+    local tmp key
+    tmp=$(mktemp -- "$MCP_ENV_CACHE.XXXXXX") || return 1
     {
         for key in "${MCP_ENV_KEYS[@]}"; do
             if [[ -n "${!key:-}" ]]; then
-                printf 'export %s=%q\n' "$key" "${!key}"
+                [[ "${!key}" != *$'\n'* && "${!key}" != *$'\r'* ]] || {
+                    rm -f -- "$tmp"
+                    return 1
+                }
+                printf '%s=%s\n' "$key" "${!key}"
             fi
         done
-        printf 'export BWS_SECRETS_INJECTED=1\n'
+        printf 'BWS_SECRETS_INJECTED=1\n'
     } >"$tmp"
-    chmod 600 -- "$tmp"
-    mv -f -- "$tmp" "$MCP_ENV_CACHE"
+    chmod 600 -- "$tmp" || {
+        rm -f -- "$tmp"
+        return 1
+    }
+    mv -f -- "$tmp" "$MCP_ENV_CACHE" || {
+        rm -f -- "$tmp"
+        return 1
+    }
 }
 
 mcp_env_sync() {
@@ -93,19 +144,23 @@ bws_guard() {
 }
 
 mcp_env_exec_remote() {
-    local bin="${MCP_NODE_PREFIX:-$HOME/.local/share/mcp-node}/node_modules/.bin/mcp-remote"
-    if [[ -x "$bin" ]]; then
-        exec "$bin" "$@"
-    fi
-    exec npx -y mcp-remote "$@"
+    local package="mcp-remote@0.1.38"
+    exec npx -y "$package" "$@"
 }
 
 mcp_env_exec_npm() {
-    local name="$1" bin
+    (( $# > 0 )) || return 2
+    local package="$1"
     shift
-    bin="${MCP_NODE_PREFIX:-$HOME/.local/share/mcp-node}/node_modules/.bin/$name"
-    if [[ -x "$bin" ]]; then
-        exec "$bin" "$@"
-    fi
-    exec npx -y "$name@latest" "$@"
+    case "$package" in
+        firecrawl-mcp@3.24.0)
+            ;;
+        tavily-mcp@0.2.22)
+            ;;
+        *)
+            printf 'Unsupported MCP package: %s\n' "$package" >&2
+            return 2
+            ;;
+    esac
+    exec npx -y "$package" "$@"
 }

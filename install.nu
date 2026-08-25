@@ -54,7 +54,11 @@ def main [
         (which $cmd | is-not-empty)
     }
 
-    def ensure_scoop [dry: bool]: nothing -> bool {
+    def powershell_host []: nothing -> string {
+        if (check_cmd "pwsh") { "pwsh" } else { "powershell" }
+    }
+
+    def --env ensure_scoop [dry: bool, elevated: bool]: nothing -> bool {
         if (check_cmd "scoop") {
             log_info "Scoop: already installed"
             return true
@@ -64,8 +68,32 @@ def main [
             return true
         }
         log_info "Installing Scoop..."
+        let install_url = "https://raw.githubusercontent.com/ScoopInstaller/Install/3bcaeb2ea53ad611fd8552eb9f735c5e2cd52f40/install.ps1"
+        let expected_hash = "84242117FBD6CF80C1F1767E590A681257DB47E8E0E6864DC445CE6C7FD6980E"
+        let temp_script = (mktemp --suffix ".ps1")
         try {
-            ^powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression"
+            http get --raw $install_url | save --raw --force $temp_script
+            let actual_hash = (open --raw $temp_script | hash sha256 | str uppercase)
+            if $actual_hash != $expected_hash {
+                log_error "Scoop installer hash verification failed"
+                return false
+            }
+            let result = if $elevated {
+                (^powershell.exe -NoProfile -ExecutionPolicy Bypass -File $temp_script -RunAsAdmin | complete)
+            } else {
+                (^powershell.exe -NoProfile -ExecutionPolicy Bypass -File $temp_script | complete)
+            }
+            if $result.exit_code != 0 {
+                log_error "Scoop install failed"
+                return false
+            }
+            let scoop_root = ($env.SCOOP? | default ($env.USERPROFILE | path join "scoop"))
+            let scoop_shims = ($scoop_root | path join "shims")
+            let scoop_command = ($scoop_shims | path join "scoop.cmd")
+            if ($scoop_command | path exists) {
+                $env.SCOOP = $scoop_root
+                $env.PATH = ($env.PATH | prepend $scoop_shims)
+            }
             if (check_cmd "scoop") {
                 log_info "Scoop: installed"
                 try { ^scoop bucket add extras } catch { }
@@ -77,6 +105,8 @@ def main [
         } catch {
             log_error "Scoop install failed"
             return false
+        } finally {
+            rm --force $temp_script
         }
     }
 
@@ -110,8 +140,9 @@ def main [
     }
 
     def read_link_target [path: string]: nothing -> string {
+        let script = '& { param([string]$Path) $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue; if ($null -ne $item) { $item.Target } }'
         try {
-            ^powershell -NoProfile -Command $"(Get-Item -LiteralPath '($path)' -Force -ErrorAction SilentlyContinue).Target" | str trim
+            ^powershell -NoProfile -Command $script $path | str trim
         } catch {
             ""
         }
@@ -151,41 +182,126 @@ def main [
         }
     }
 
-    def link_config [source: string, dest: string, is_file: bool, name: string, dry: bool] {
+    def initialize_transaction_journal [path: string]: nothing -> bool {
+        let script = '& { param([string]$Path) $ErrorActionPreference = "Stop"; $directory = Split-Path -Parent $Path; $identity = [Security.Principal.WindowsIdentity]::GetCurrent().User; $directoryAcl = New-Object Security.AccessControl.DirectorySecurity; $directoryAcl.SetAccessRuleProtection($true, $false); $directoryAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($identity, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"))); [IO.Directory]::CreateDirectory($directory) | Out-Null; [IO.Directory]::SetAccessControl($directory, $directoryAcl); $fileAcl = New-Object Security.AccessControl.FileSecurity; $fileAcl.SetAccessRuleProtection($true, $false); $fileAcl.AddAccessRule((New-Object Security.AccessControl.FileSystemAccessRule($identity, "FullControl", "Allow"))); [IO.File]::WriteAllText($Path, ""); [IO.File]::SetAccessControl($Path, $fileAcl) }'
+        try {
+            let result = (^powershell -NoProfile -Command $script $path | complete)
+            $result.exit_code == 0
+        } catch {
+            false
+        }
+    }
+
+    def append_transaction_journal [path: string, entry: record, durable: bool = false]: nothing -> bool {
+        let line = (($entry | to json -r) + "\n")
+        let encoded_line = ($line | encode base64)
+        let script = '& { param([string]$Path, [string]$EncodedLine, [string]$Durable) $ErrorActionPreference = "Stop"; $bytes = [Convert]::FromBase64String($EncodedLine); $stream = [IO.FileStream]::new($Path, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::Read); try { $stream.Seek(0, [IO.SeekOrigin]::End) | Out-Null; $stream.Write($bytes, 0, $bytes.Length); $stream.Flush($Durable -eq "true") } finally { $stream.Dispose() } }'
+        try {
+            let result = (^powershell -NoProfile -Command $script $path $encoded_line $durable | complete)
+            $result.exit_code == 0
+        } catch {
+            false
+        }
+    }
+
+    def link_config [source: string, dest: string, is_file: bool, name: string, stage: string, rollback: string, dry: bool]: nothing -> record {
         if not ($source | path exists) {
-            log_warn $"Source not found: ($name)"
-            return
+            log_error $"Source not found: ($name)"
+            return {ok: false, had_live: false}
         }
         if $dry {
             log_dry $"Would link: ($name) -> ($dest)"
-            return
+            return {ok: true, had_live: false}
         }
-        let link_target = (read_link_target $dest)
-        if ($dest | path exists) or (($link_target | str length) > 0) {
-            if not (remove_existing_path $dest) {
-                log_warn $"Failed to remove: ($dest)"
-                return
-            }
-        }
-        mkdir ($dest | path dirname)
+        let script = '& { param([string]$Source, [string]$Dest, [string]$IsFile, [string]$Stage, [string]$Rollback) $ErrorActionPreference = "Stop"; function Get-Entry([string]$Path) { Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }; function Get-PathIdentity($Item) { $target = if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [string]::Join([char]31, @($Item.Target | ForEach-Object { $_.ToString() })) } else { "" }; $length = if ($Item.PSIsContainer) { -1 } else { [int64]$Item.Length }; @{ creation_time_utc_ticks = $Item.CreationTimeUtc.Ticks; last_write_time_utc_ticks = $Item.LastWriteTimeUtc.Ticks; attributes = [int64]$Item.Attributes; target = $target; length = $length } }; function Test-PathIdentity($Item, $Identity) { if ($null -eq $Item -or $null -eq $Identity) { return $false }; $actual = Get-PathIdentity $Item; return $actual.creation_time_utc_ticks -eq $Identity.creation_time_utc_ticks -and $actual.last_write_time_utc_ticks -eq $Identity.last_write_time_utc_ticks -and $actual.attributes -eq $Identity.attributes -and $actual.target -eq $Identity.target -and $actual.length -eq $Identity.length }; function Remove-Link([string]$Path) { $item = Get-Entry $Path; if ($null -eq $item) { return }; if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { throw "Refusing to remove a non-link path: $Path" }; if ($item.PSIsContainer) { [IO.Directory]::Delete($Path) } else { [IO.File]::Delete($Path) } }; function Test-Link([string]$Path, [string]$Target) { $item = Get-Entry $Path; if ($null -eq $item -or (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) { return $false }; $expected = [IO.Path]::GetFullPath($Target).TrimEnd("\\"); return (@($item.Target) | Where-Object { [IO.Path]::GetFullPath($_.ToString()).TrimEnd("\\") -eq $expected } | Measure-Object).Count -gt 0 }; $live = Get-Entry $Dest; $hadLive = $null -ne $live; $rollbackIdentity = if ($hadLive) { Get-PathIdentity $live } else { $null }; try { if ($null -ne (Get-Entry $Stage)) { throw "Staging path already exists: $Stage" }; if ($null -ne (Get-Entry $Rollback)) { throw "Rollback path already exists: $Rollback" }; [IO.Directory]::CreateDirectory((Split-Path -Parent $Dest)) | Out-Null; try { New-Item -ItemType SymbolicLink -Path $Stage -Target $Source -ErrorAction Stop | Out-Null } catch { if ($IsFile -eq "true") { throw }; New-Item -ItemType Junction -Path $Stage -Target $Source -ErrorAction Stop | Out-Null }; if (-not (Test-Link $Stage $Source)) { throw "Staged link verification failed: $Stage" }; try { if ($hadLive) { Move-Item -LiteralPath $Dest -Destination $Rollback -ErrorAction Stop; if (-not (Test-PathIdentity (Get-Entry $Rollback) $rollbackIdentity)) { throw "Rollback identity changed after move: $Rollback" } }; Move-Item -LiteralPath $Stage -Destination $Dest -ErrorAction Stop; if (-not (Test-Link $Dest $Source)) { throw "Live link verification failed: $Dest" } } catch { Remove-Link $Dest; if ($hadLive -and (Test-PathIdentity (Get-Entry $Rollback) $rollbackIdentity)) { Move-Item -LiteralPath $Rollback -Destination $Dest -ErrorAction Stop }; throw }; $created = Get-Entry $Dest; $identityTarget = [IO.Path]::GetFullPath((@($created.Target)[0]).ToString()).TrimEnd("\\"); @{ ok = $true; had_live = $hadLive; identity = @{ creation_time_utc_ticks = $created.CreationTimeUtc.Ticks; attributes = [int64]$created.Attributes; target = $identityTarget }; rollback_identity = $rollbackIdentity } | ConvertTo-Json -Compress -Depth 4 } catch { try { Remove-Link $Stage } catch {}; @{ ok = $false; had_live = $hadLive; error = $_.Exception.Message } | ConvertTo-Json -Compress; exit 1 } }'
         try {
-            let result = (^powershell -NoProfile -Command $"New-Item -ItemType SymbolicLink -Path '($dest)' -Target '($source)' -Force | Out-Null" | complete)
-            if $result.exit_code == 0 {
+            let ps = (powershell_host)
+            let result = (^$ps -NoProfile -Command $script $source $dest $is_file $stage $rollback | complete)
+            let response = ($result.stdout | str trim | from json)
+            if $result.exit_code == 0 and $response.ok {
                 log_info $"Linked: ($name) -> ($dest)"
-                return
+                return $response
             }
-            if not $is_file {
-                let junction = (^cmd /c mklink /J $dest $source | complete)
-                if $junction.exit_code == 0 {
-                    log_info $"Linked with junction: ($name) -> ($dest)"
-                    return
-                }
-            }
-            log_error $"Failed to link: ($name)"
-            log_warn "Enable Developer Mode: Settings → For developers → Developer Mode"
+            let detail = ($response.error? | default "unknown error")
+            log_error $"Failed to link: ($name): ($detail)"
+            return {ok: false, had_live: ($response.had_live? | default false)}
         } catch {
             log_error $"Failed to link: ($name)"
-            log_warn "Enable Developer Mode: Settings → For developers → Developer Mode"
+            {ok: false, had_live: false}
+        }
+    }
+
+    def rollback_link_config [source: string, dest: string, rollback: string, had_live: bool, identity: record, rollback_identity: any]: nothing -> bool {
+        let encoded_identity = ($identity | to json -r | encode base64)
+        let encoded_rollback_identity = ($rollback_identity | to json -r | encode base64)
+        let script = '& { param([string]$Source, [string]$Dest, [string]$Rollback, [string]$HadLive, [string]$EncodedIdentity, [string]$EncodedRollbackIdentity) $ErrorActionPreference = "Stop"; $identity = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedIdentity)) | ConvertFrom-Json; $rollbackIdentity = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedRollbackIdentity)) | ConvertFrom-Json; function Get-Entry([string]$Path) { Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }; function Normalize-Target([string]$Target) { [IO.Path]::GetFullPath($Target).TrimEnd("\\") }; function Test-Link([string]$Path, [string]$Target) { $item = Get-Entry $Path; if ($null -eq $item -or (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0)) { return $false }; $expected = Normalize-Target $Target; return (@($item.Target) | Where-Object { (Normalize-Target $_.ToString()) -eq $expected } | Measure-Object).Count -gt 0 }; function Test-RollbackIdentity($Item) { if ($null -eq $Item) { return $false }; $target = if (($Item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [string]::Join([char]31, @($Item.Target | ForEach-Object { $_.ToString() })) } else { "" }; $length = if ($Item.PSIsContainer) { -1 } else { [int64]$Item.Length }; return $Item.CreationTimeUtc.Ticks -eq $rollbackIdentity.creation_time_utc_ticks -and $Item.LastWriteTimeUtc.Ticks -eq $rollbackIdentity.last_write_time_utc_ticks -and [int64]$Item.Attributes -eq $rollbackIdentity.attributes -and $target -eq $rollbackIdentity.target -and $length -eq $rollbackIdentity.length }; function Remove-Link([string]$Path) { $item = Get-Entry $Path; if ($item.PSIsContainer) { [IO.Directory]::Delete($Path) } else { [IO.File]::Delete($Path) } }; try { if ($HadLive -eq "true" -and -not (Test-RollbackIdentity (Get-Entry $Rollback))) { throw "Rollback identity does not match the original destination: $Rollback" }; $destItem = Get-Entry $Dest; if ($null -ne $destItem) { if (-not (Test-Link $Dest $Source)) { throw "Destination source does not match the transaction-created link: $Dest" }; $actualTarget = Normalize-Target (@($destItem.Target)[0]).ToString(); if ($actualTarget -ne (Normalize-Target $identity.target) -or $destItem.CreationTimeUtc.Ticks -ne $identity.creation_time_utc_ticks -or [int64]$destItem.Attributes -ne $identity.attributes) { throw "Destination identity does not match the transaction-created link: $Dest" }; Remove-Link $Dest }; if ($HadLive -eq "true") { Move-Item -LiteralPath $Rollback -Destination $Dest -ErrorAction Stop }; exit 0 } catch { exit 1 } }'
+        try {
+            let result = (^powershell -NoProfile -Command $script $source $dest $rollback $had_live $encoded_identity $encoded_rollback_identity | complete)
+            $result.exit_code == 0
+        } catch {
+            false
+        }
+    }
+
+    def rollback_link_targets [linked_targets: list<any>, journal: string]: nothing -> bool {
+        mut rollback_ok = true
+        for linked in ($linked_targets | reverse) {
+            if (rollback_link_config $linked.source $linked.dest $linked.rollback $linked.had_live $linked.identity $linked.rollback_identity) {
+                if not (append_transaction_journal $journal {
+                    event: "target_rolled_back"
+                    timestamp: (date now | format date "%+")
+                    name: $linked.name
+                    source: $linked.source
+                    dest: $linked.dest
+                    identity: $linked.identity
+                    rollback_identity: $linked.rollback_identity
+                }) {
+                    log_warn $"Failed to journal rollback: ($linked.name)"
+                }
+            } else {
+                $rollback_ok = false
+                let _ = (append_transaction_journal $journal {
+                    event: "rollback_failed"
+                    timestamp: (date now | format date "%+")
+                    name: $linked.name
+                    source: $linked.source
+                    dest: $linked.dest
+                    rollback: $linked.rollback
+                    identity: $linked.identity
+                    rollback_identity: $linked.rollback_identity
+                })
+                log_error $"Rollback failed: ($linked.name)"
+            }
+        }
+        $rollback_ok
+    }
+
+    def fail_link_transaction [linked_targets: list<any>, journal: string, target: record, message: string] {
+        let _ = (append_transaction_journal $journal {
+            event: "target_failed"
+            timestamp: (date now | format date "%+")
+            name: $target.name
+            source: $target.source
+            dest: $target.dest
+        })
+        let rollback_ok = (rollback_link_targets $linked_targets $journal)
+        let _ = (append_transaction_journal $journal {
+            event: "run_failed"
+            timestamp: (date now | format date "%+")
+            failed_target: $target.name
+            rollback_ok: $rollback_ok
+        })
+        error make {msg: $message}
+    }
+
+    def remove_rollback_path [path: string, identity: record]: nothing -> bool {
+        let encoded_identity = ($identity | to json -r | encode base64)
+        let script = '& { param([string]$Path, [string]$EncodedIdentity) $ErrorActionPreference = "Stop"; $identity = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($EncodedIdentity)) | ConvertFrom-Json; $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue; if ($null -eq $item) { exit 1 }; $actualTarget = if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { [string]::Join([char]31, @($item.Target | ForEach-Object { $_.ToString() })) } else { "" }; $actualLength = if ($item.PSIsContainer) { -1 } else { [int64]$item.Length }; if ($item.CreationTimeUtc.Ticks -ne $identity.creation_time_utc_ticks -or $item.LastWriteTimeUtc.Ticks -ne $identity.last_write_time_utc_ticks -or [int64]$item.Attributes -ne $identity.attributes -or $actualTarget -ne $identity.target -or $actualLength -ne $identity.length) { exit 1 }; Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop }'
+        try {
+            let result = (^powershell -NoProfile -Command $script $path $encoded_identity | complete)
+            $result.exit_code == 0
+        } catch {
+            false
         }
     }
 
@@ -269,29 +385,32 @@ def main [
         }
     }
 
-    def ensure_real_dir [dest: string, name: string, dry: bool] {
+    def ensure_real_dir [dest: string, name: string, dry: bool]: nothing -> bool {
         if $dry {
             log_dry $"Would ensure directory: ($name) -> ($dest)"
-            return
+            return true
         }
 
         let link_target = (read_link_target $dest)
 
         if (($link_target | str length) > 0) {
-            if not (remove_existing_path $dest) {
-                log_warn $"Failed to remove: ($dest)"
-                return
-            }
-        } else if ($dest | path exists) and (($dest | path type) != "dir") {
-            if not (remove_existing_path $dest) {
-                log_warn $"Failed to remove: ($dest)"
-                return
-            }
+            log_error $"($name): existing link blocks required real directory: ($dest)"
+            return false
+        }
+        if ($dest | path exists) and (($dest | path type) != "dir") {
+            log_error $"($name): non-directory path blocks required real directory: ($dest)"
+            return false
         }
 
         if not ($dest | path exists) {
-            mkdir $dest
+            try {
+                mkdir $dest
+            } catch {
+                log_error $"($name): failed to create directory: ($dest)"
+                return false
+            }
         }
+        true
     }
 
     def decode_json_result [result: record, name: string] {
@@ -467,9 +586,9 @@ def main [
         log_step "=== Step 1: Installing Tools ==="
         print ""
 
-        if not (ensure_scoop $dry_run) {
+        if not (ensure_scoop $dry_run $is_admin) {
             log_error "Scoop required"
-            return
+            error make "Scoop required"
         }
 
         let tools = [
@@ -741,13 +860,15 @@ def main [
     let codex_config = ($ai_root | path join ".codex" | path join "config.toml")
     let codex_windows_config = ($ai_root | path join ".codex" | path join "windows.config.toml")
     let codex_linux_config = ($ai_root | path join ".codex" | path join "linux.config.toml")
+    let codex_hooks = ($ai_root | path join ".codex" | path join "hooks.json")
     let codex_agents = ($ai_root | path join ".codex" | path join "agents")
     if $should_link_codex {
         let codex_files = [
             {src: $shared_agents,       dest: ($codex_home | path join "AGENTS.md"),            is_file: true,  name: "Codex AGENTS.md"}
-            {src: $codex_config,        dest: ($codex_home | path join "config.toml"),           is_file: true,  name: "Codex config.toml"}
+            {src: $codex_config,         dest: ($codex_home | path join "config.toml"),          is_file: true,  name: "Codex config"}
             {src: $codex_windows_config, dest: ($codex_home | path join "windows.config.toml"), is_file: true,  name: "Codex Windows profile"}
             {src: $codex_linux_config,  dest: ($codex_home | path join "linux.config.toml"),     is_file: true,  name: "Codex Linux profile"}
+            {src: $codex_hooks,         dest: ($codex_home | path join "hooks.json"),             is_file: true,  name: "Codex hooks"}
             {src: $codex_agents,        dest: ($codex_home | path join "agents"),                is_file: false, name: "Codex agents"}
             {src: $shared_skills,       dest: ($codex_home | path join "skills"),                is_file: false, name: "Codex skills"}
         ]
@@ -755,12 +876,11 @@ def main [
     }
 
     if $should_link_grok {
-        $targets ++= (existing_targets [{
-            src: ($ai_root | path join ".grok" | path join "config.toml")
-            dest: ($grok_home | path join "config.toml")
-            is_file: true
-            name: "Grok config.toml"
-        }])
+        let grok_files = [
+            {src: $shared_agents, dest: ($grok_home | path join "AGENTS.md"), is_file: true, name: "Grok AGENTS.md"}
+            {src: ($ai_root | path join ".grok" | path join "config.toml"), dest: ($grok_home | path join "config.toml"), is_file: true, name: "Grok config.toml"}
+        ]
+        $targets ++= (existing_targets $grok_files)
     }
 
     if $should_link_opencode {
@@ -824,14 +944,137 @@ def main [
     print ""
 
     if ($active_claude_skill_targets | is-not-empty) {
-        ensure_real_dir $claude_skills_dest ".claude skills" $dry_run
+        if not (ensure_real_dir $claude_skills_dest ".claude skills" $dry_run) {
+            error make {msg: "Failed to ensure .claude skills directory"}
+        }
     }
     if (should_install "yasb" $skip_list $only_list) {
-        ensure_real_dir $yasb_config_dir "Yasb config dir" $dry_run
+        if not (ensure_real_dir $yasb_config_dir "Yasb config dir" $dry_run) {
+            error make {msg: "Failed to ensure Yasb config directory"}
+        }
+    }
+
+    let transaction_id = (random uuid | into string)
+    let transaction_root = ($localappdata | path join "envCross_dotfiles" | path join "transactions")
+    let transaction_journal = ($transaction_root | path join $"($transaction_id).jsonl")
+    mut linked_targets = []
+
+    if not $dry_run {
+        if not (initialize_transaction_journal $transaction_journal) {
+            error make {msg: "Failed to create restricted transaction journal"}
+        }
+        if not (append_transaction_journal $transaction_journal {
+            event: "run_started"
+            transaction_id: $transaction_id
+            timestamp: (date now | format date "%+")
+        }) {
+            error make {msg: "Failed to initialize transaction journal"}
+        }
     }
 
     for t in $targets {
-        link_config $t.source $t.dest $t.is_file $t.name $dry_run
+        let sibling_root = ($t.dest | path dirname)
+        let sibling_name = ($t.dest | path basename)
+        let stage = ($sibling_root | path join $".($sibling_name).envCross-($transaction_id).stage")
+        let rollback = ($sibling_root | path join $".($sibling_name).envCross-($transaction_id).rollback")
+
+        if not $dry_run and not (append_transaction_journal $transaction_journal {
+            event: "target_planned"
+            timestamp: (date now | format date "%+")
+            name: $t.name
+            source: $t.source
+            dest: $t.dest
+            stage: $stage
+            rollback: $rollback
+        }) {
+            fail_link_transaction $linked_targets $transaction_journal $t $"Failed to journal planned target: ($t.name)"
+        }
+
+        let link_result = (link_config $t.source $t.dest $t.is_file $t.name $stage $rollback $dry_run)
+        if not $link_result.ok {
+            if $dry_run {
+                error make {msg: $"Link transaction failed: ($t.name)"}
+            }
+            fail_link_transaction $linked_targets $transaction_journal $t $"Link transaction failed: ($t.name)"
+        }
+
+        if not $dry_run {
+            $linked_targets ++= [{
+                name: $t.name
+                source: $t.source
+                dest: $t.dest
+                rollback: $rollback
+                had_live: $link_result.had_live
+                identity: $link_result.identity
+                rollback_identity: $link_result.rollback_identity
+            }]
+            if not (append_transaction_journal $transaction_journal {
+                event: "target_swapped"
+                timestamp: (date now | format date "%+")
+                name: $t.name
+                source: $t.source
+                dest: $t.dest
+                rollback: $rollback
+                had_live: $link_result.had_live
+                identity: $link_result.identity
+                rollback_identity: $link_result.rollback_identity
+            }) {
+                fail_link_transaction $linked_targets $transaction_journal $t $"Failed to journal swapped target: ($t.name)"
+            }
+        }
+    }
+
+    if not $dry_run {
+        if not (append_transaction_journal $transaction_journal {
+            event: "run_committed"
+            transaction_id: $transaction_id
+            timestamp: (date now | format date "%+")
+            target_count: ($linked_targets | length)
+        } true) {
+            let rollback_ok = (rollback_link_targets $linked_targets $transaction_journal)
+            let _ = (append_transaction_journal $transaction_journal {
+                event: "run_failed"
+                timestamp: (date now | format date "%+")
+                failed_target: "run_commit"
+                rollback_ok: $rollback_ok
+            })
+            error make {msg: "Failed to persist transaction commit point"}
+        }
+
+        for linked in $linked_targets {
+            if $linked.had_live {
+                if (remove_rollback_path $linked.rollback $linked.rollback_identity) {
+                    if not (append_transaction_journal $transaction_journal {
+                        event: "rollback_removed"
+                        timestamp: (date now | format date "%+")
+                        name: $linked.name
+                        rollback: $linked.rollback
+                        rollback_identity: $linked.rollback_identity
+                    }) {
+                        log_warn $"Failed to journal rollback cleanup: ($linked.name)"
+                    }
+                } else {
+                    let warning_recorded = (append_transaction_journal $transaction_journal {
+                        event: "rollback_cleanup_failed"
+                        timestamp: (date now | format date "%+")
+                        name: $linked.name
+                        rollback: $linked.rollback
+                        rollback_identity: $linked.rollback_identity
+                    })
+                    log_warn $"Committed transaction retained rollback artifact: ($linked.rollback)"
+                    if not $warning_recorded {
+                        log_warn $"Failed to journal rollback cleanup warning: ($linked.name)"
+                    }
+                }
+            }
+        }
+        if not (append_transaction_journal $transaction_journal {
+            event: "run_completed"
+            transaction_id: $transaction_id
+            timestamp: (date now | format date "%+")
+        }) {
+            log_warn $"Committed transaction status update failed: ($transaction_journal)"
+        }
     }
 
     if $should_link_claude {

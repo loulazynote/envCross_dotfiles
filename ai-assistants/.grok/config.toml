@@ -3,175 +3,64 @@ installer = "internal"
 
 [ui]
 max_thoughts_width = 120
-theme = "groknight"
 fork_secondary_model = "grok-build"
 yolo = false
 compact_mode = false
 permission_mode = "always-approve"
 
 [marketplace]
+default_skills_installs_purged = true
 official_marketplace_auto_installed = true
 
 [[marketplace.sources]]
 name = "xAI Official"
 git = "https://github.com/xai-org/plugin-marketplace.git"
 
-[models]
-default = "grok-4.5"
-default_reasoning_effort = "medium"
+[compat.cursor]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
 
-[model."gpt-5.6-sol"]
-model = "gpt-5.6-sol"
-base_url = "http://127.0.0.1:8080/v1"
-name = "gpt-5.6-sol"
-env_key = "CODEX_PROXY_API_KEY"
-api_backend = "chat_completions"
-context_window = 272000
+[compat.claude]
+skills = false
+rules = false
+agents = false
+mcps = false
+hooks = false
+sessions = false
 
-[model."gpt-5.6-terra"]
-model = "gpt-5.6-terra"
-base_url = "http://127.0.0.1:8080/v1"
-name = "gpt-5.6-terra"
-env_key = "CODEX_PROXY_API_KEY"
-api_backend = "chat_completions"
-context_window = 272000
+[compat.codex]
+sessions = false
 
-[model."glm-5.2"]
-model = "glm-5.2"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "glm-5.2"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."qwen3.7-max"]
-model = "qwen3.7-max"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "qwen3.7-max"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."qwen3.7-plus"]
-model = "qwen3.7-plus"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "qwen3.7-plus"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."qwen3.6-plus"]
-model = "qwen3.6-plus"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "qwen3.6-plus"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."kimi-k2.7-code"]
-model = "kimi-k2.7-code"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "kimi-k2.7-code"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."deepseek-v4-pro"]
-model = "deepseek-v4-pro"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "deepseek-v4-pro"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."minimax-m3"]
-model = "minimax-m3"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "minimax-m3"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."kimi-k3"]
-model = "kimi-k3"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "kimi-k3"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."kimi-k2.6"]
-model = "kimi-k2.6"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "kimi-k2.6"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."deepseek-v4-flash"]
-model = "deepseek-v4-flash"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "deepseek-v4-flash"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."mimo-v2.5-pro"]
-model = "mimo-v2.5-pro"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "mimo-v2.5-pro"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
-
-[model."minimax-m2.7"]
-model = "minimax-m2.7"
-base_url = "https://opencode.ai/zen/go/v1"
-name = "minimax-m2.7"
-env_key = "OPENCODE_API_KEY"
-api_backend = "chat_completions"
+[plugins]
+disabled = [
+  "caveman",
+  "claude-md-management",
+  "code-review",
+  "code-simplifier",
+  "codex",
+  "commit-commands",
+  "common-lsp",
+  "csharp-lsp",
+  "feature-dev",
+  "github",
+  "gopls-lsp",
+  "linear",
+  "lua-lsp",
+  "playwright",
+  "pr-review-toolkit",
+  "pyright-lsp",
+  "security-guidance",
+  "superpowers",
+  "typescript-lsp",
+]
 
 [mcp_servers.code-review-graph]
-type = "stdio"
 command = "uvx"
 args = ["code-review-graph", "serve"]
-startup_timeout_sec = 45
-enabled = true
-
-[mcp_servers.content-i18n]
-type = "stdio"
-command = "/home/lou/.local/bin/content-i18n"
-args = ["mcp", "--config", "/home/lou/Documents/LouStackBase/content-i18n.yaml"]
-startup_timeout_sec = 45
-enabled = true
-
-[mcp_servers.crawl4ai]
-type = "stdio"
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-crawl4ai.sh"
-startup_timeout_sec = 45
-enabled = true
-
-[mcp_servers.exa]
-type = "http"
-url = "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa"
-startup_timeout_sec = 30
-enabled = true
-
-[mcp_servers.firecrawl]
-type = "stdio"
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-firecrawl.sh"
-startup_timeout_sec = 45
-enabled = true
-
-[mcp_servers.markitdown]
-type = "stdio"
-command = "markitdown-mcp"
-startup_timeout_sec = 45
-enabled = true
 
 [mcp_servers.mem0]
-type = "stdio"
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-mem0.sh"
-startup_timeout_sec = 45
-enabled = true
-
-[mcp_servers.tavily]
-type = "stdio"
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-tavily.sh"
-startup_timeout_sec = 45
-enabled = true
-
-[mcp_servers.github]
-type = "stdio"
-command = "/home/lou/Documents/WorkFlow/envCross_dotfiles/scripts/mcp/run-github.sh"
-startup_timeout_sec = 45
-enabled = true
+url = "https://mcp.mem0.ai/mcp"

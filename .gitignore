@@ -37,3 +37,4 @@ __pycache__/
 *.py[cod]
 /.claude/
 /nvim/.claude/
+.slim/deepwork/

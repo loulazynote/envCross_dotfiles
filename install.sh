@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeuo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")" && pwd)"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 BACKUP_DIR=""
+TRANSACTION_ROOT=""
+TRANSACTION_DIR=""
+TRANSACTION_JOURNAL=""
+TRANSACTION_ID=""
+TRANSACTION_ACTIVE=false
+TRANSACTION_ROLLING_BACK=false
+TRANSACTION_INDEX=0
 
 # Options
 DRY_RUN=false
@@ -228,6 +235,367 @@ path_in_repo() {
     [[ "$path" == "$REPO_ROOT" || "$path" == "$REPO_ROOT/"* ]]
 }
 
+path_exists() {
+    [[ -e "$1" || -L "$1" ]]
+}
+
+is_windows_posix() {
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+validate_transaction_field() {
+    local label="$1"
+    local value="$2"
+    local LC_ALL=C
+
+    if [[ -z "$value" || "$value" =~ [[:cntrl:]] ]]; then
+        log_error "transaction: invalid $label"
+        return 1
+    fi
+}
+
+link_points_to() {
+    local path="$1"
+    local expected_source="$2"
+
+    if [[ "$(readlink "$path" 2>/dev/null || true)" == "$expected_source" && -e "$path" ]]; then
+        return 0
+    fi
+
+    is_windows_posix && [[ -f "$path" && -f "$expected_source" ]] && cmp -s -- "$path" "$expected_source"
+}
+
+path_identity() {
+    stat -c '%d:%i' -- "$1"
+}
+
+set_private_permissions() {
+    if chmod "$1" "$2" 2>/dev/null; then
+        return 0
+    fi
+
+    case "$(uname -s)" in
+        MINGW*|MSYS*|CYGWIN*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+sync_journal() {
+    if sync "$TRANSACTION_JOURNAL" 2>/dev/null; then
+        return 0
+    fi
+
+    is_windows_posix
+}
+
+transaction_directory_is_owned() {
+    [[ "$(stat -c '%u' -- "$1" 2>/dev/null || true)" == "$(id -u)" ]]
+}
+
+verify_transaction_directory() {
+    local path="$1"
+
+    [[ ! -L "$path" && -d "$path" ]] || return 1
+    transaction_directory_is_owned "$path" || return 1
+    is_windows_posix || [[ "$(stat -c '%a' -- "$path" 2>/dev/null || true)" == "700" ]]
+}
+
+init_transaction() {
+    [[ "$DRY_RUN" == "true" ]] && return 0
+    [[ "$TRANSACTION_ACTIVE" == "true" ]] && return 0
+
+    TRANSACTION_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/envcross/transactions"
+    validate_transaction_field "transaction root" "$TRANSACTION_ROOT"
+    if path_exists "$TRANSACTION_ROOT"; then
+        if [[ -L "$TRANSACTION_ROOT" || ! -d "$TRANSACTION_ROOT" ]]; then
+            log_error "transaction: root must be a directory and not a symlink"
+            return 1
+        fi
+        if ! transaction_directory_is_owned "$TRANSACTION_ROOT"; then
+            log_error "transaction: root must be owned by the current user"
+            return 1
+        fi
+    fi
+    (umask 077; mkdir -p "$TRANSACTION_ROOT")
+    if ! verify_transaction_directory "$TRANSACTION_ROOT"; then
+        log_error "transaction: root must remain owner-only mode 700"
+        return 1
+    fi
+
+    TRANSACTION_DIR="$(umask 077; mktemp -d "$TRANSACTION_ROOT/$(date +%Y%m%d-%H%M%S).XXXXXX")"
+    if ! verify_transaction_directory "$TRANSACTION_DIR"; then
+        log_error "transaction: directory must remain owner-only mode 700"
+        return 1
+    fi
+    TRANSACTION_JOURNAL="$TRANSACTION_DIR/journal"
+    TRANSACTION_ID="$(basename "$TRANSACTION_DIR")"
+    (umask 077; : > "$TRANSACTION_JOURNAL")
+    set_private_permissions 600 "$TRANSACTION_JOURNAL"
+    printf 'state\tactive\n' >> "$TRANSACTION_JOURNAL"
+    sync_journal
+    TRANSACTION_ACTIVE=true
+}
+
+transaction_log_swap() {
+    local swap_kind="$1"
+    local dst="$2"
+    local rollback="$3"
+    local had_destination="$4"
+    local expected_source="$5"
+    local expected_identity="$6"
+    local rollback_identity="$7"
+
+    validate_transaction_field "swap kind" "$swap_kind"
+    validate_transaction_field "destination" "$dst"
+    validate_transaction_field "rollback path" "$rollback"
+    validate_transaction_field "destination state" "$had_destination"
+    validate_transaction_field "expected source" "$expected_source"
+    validate_transaction_field "expected identity" "$expected_identity"
+    validate_transaction_field "rollback identity" "$rollback_identity"
+    printf 'swap\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$swap_kind" "$dst" "$rollback" "$had_destination" \
+        "$expected_source" "$expected_identity" "$rollback_identity" >> "$TRANSACTION_JOURNAL"
+    sync_journal
+}
+
+create_staged_link() {
+    local src="$1"
+    local stage_dir="$2"
+    local stage="$stage_dir/link"
+
+    mkdir "$stage_dir"
+    if ! set_private_permissions 700 "$stage_dir"; then
+        rmdir "$stage_dir" 2>/dev/null || true
+        return 1
+    fi
+    if ! ln -s "$src" "$stage"; then
+        rmdir "$stage_dir" 2>/dev/null || true
+        return 1
+    fi
+
+    if ! link_points_to "$stage" "$src"; then
+        rm -f "$stage"
+        rmdir "$stage_dir" 2>/dev/null || true
+        return 1
+    fi
+}
+
+cleanup_staged_path() {
+    local swap_kind="$1"
+    local staged="$2"
+    local stage_container="$3"
+
+    if [[ "$swap_kind" == "link" ]]; then
+        rm -f -- "$staged" 2>/dev/null || true
+        rmdir "$stage_container" 2>/dev/null || true
+    else
+        rm -rf -- "$staged" 2>/dev/null || true
+    fi
+}
+
+destination_matches_transaction() {
+    local swap_kind="$1"
+    local dst="$2"
+    local expected_source="$3"
+    local expected_identity="$4"
+    local current_identity
+
+    current_identity="$(path_identity "$dst" 2>/dev/null || true)"
+    [[ "$current_identity" == "$expected_identity" ]] || return 1
+
+    if [[ "$swap_kind" == "link" ]]; then
+        link_points_to "$dst" "$expected_source"
+    else
+        [[ -d "$dst" && ! -L "$dst" ]]
+    fi
+}
+
+activate_staged_path() {
+    local swap_kind="$1"
+    local staged="$2"
+    local stage_container="$3"
+    local dst="$4"
+    local expected_source="$5"
+    local name="$6"
+    local rollback="-" had_destination=false
+    local expected_identity rollback_identity="-"
+
+    expected_identity="$(path_identity "$staged")" || {
+        cleanup_staged_path "$swap_kind" "$staged" "$stage_container"
+        return 1
+    }
+
+    if path_exists "$dst"; then
+        had_destination=true
+        rollback="$dst.envcross-rollback-${TRANSACTION_ID}-${TRANSACTION_INDEX}"
+        if path_exists "$rollback"; then
+            cleanup_staged_path "$swap_kind" "$staged" "$stage_container"
+            log_error "$name: rollback sibling already exists ($rollback)"
+            return 1
+        fi
+        rollback_identity="$(path_identity "$dst")" || {
+            cleanup_staged_path "$swap_kind" "$staged" "$stage_container"
+            return 1
+        }
+    fi
+
+    if ! transaction_log_swap "$swap_kind" "$dst" "$rollback" "$had_destination" \
+        "$expected_source" "$expected_identity" "$rollback_identity"; then
+        cleanup_staged_path "$swap_kind" "$staged" "$stage_container"
+        log_error "$name: failed to journal replacement"
+        return 1
+    fi
+
+    if [[ "$had_destination" == "true" ]] && ! mv -- "$dst" "$rollback"; then
+        cleanup_staged_path "$swap_kind" "$staged" "$stage_container"
+        log_error "$name: failed to preserve existing destination"
+        return 1
+    fi
+
+    if ! mv -- "$staged" "$dst"; then
+        cleanup_staged_path "$swap_kind" "$staged" "$stage_container"
+        log_error "$name: failed to activate staged destination"
+        return 1
+    fi
+
+    if [[ "$swap_kind" == "link" ]]; then
+        rmdir "$stage_container" 2>/dev/null || true
+    fi
+
+    if ! destination_matches_transaction "$swap_kind" "$dst" "$expected_source" "$expected_identity"; then
+        log_error "$name: activated destination verification failed"
+        return 1
+    fi
+
+    if [[ "$swap_kind" == "link" ]]; then
+        log_info "$name: linked -> $dst"
+    else
+        log_info "$name: stowed -> $dst"
+    fi
+}
+
+replace_link_transactionally() {
+    local src="$1"
+    local dst="$2"
+    local name="$3"
+    local parent stage_dir stage
+
+    validate_transaction_field "source" "$src"
+    validate_transaction_field "destination" "$dst"
+    validate_transaction_field "name" "$name"
+    init_transaction
+    parent="$(dirname "$dst")"
+    mkdir -p "$parent"
+    TRANSACTION_INDEX=$((TRANSACTION_INDEX + 1))
+    stage_dir="$parent/.envcross-stage-${TRANSACTION_ID}-${TRANSACTION_INDEX}"
+    stage="$stage_dir/link"
+    create_staged_link "$src" "$stage_dir"
+    activate_staged_path "link" "$stage" "$stage_dir" "$dst" "$src" "$name"
+}
+
+rollback_transaction() {
+    [[ "$TRANSACTION_ACTIVE" == "true" ]] || return 0
+
+    local record_kind swap_kind dst rollback had_destination expected_source expected_identity rollback_identity
+    local current_rollback_identity
+    local -a swap_kinds=() destinations=() rollbacks=() had_destinations=()
+    local -a expected_sources=() expected_identities=() rollback_identities=()
+    local result=0 index
+
+    while IFS=$'\t' read -r record_kind swap_kind dst rollback had_destination expected_source expected_identity rollback_identity; do
+        [[ "$record_kind" == "swap" ]] || continue
+        swap_kinds+=("$swap_kind")
+        destinations+=("$dst")
+        rollbacks+=("$rollback")
+        had_destinations+=("$had_destination")
+        expected_sources+=("$expected_source")
+        expected_identities+=("$expected_identity")
+        rollback_identities+=("$rollback_identity")
+    done < "$TRANSACTION_JOURNAL"
+
+    for ((index=${#destinations[@]} - 1; index>=0; index--)); do
+        swap_kind="${swap_kinds[index]}"
+        dst="${destinations[index]}"
+        rollback="${rollbacks[index]}"
+        had_destination="${had_destinations[index]}"
+        expected_source="${expected_sources[index]}"
+        expected_identity="${expected_identities[index]}"
+        rollback_identity="${rollback_identities[index]}"
+
+        if path_exists "$dst"; then
+            if destination_matches_transaction "$swap_kind" "$dst" "$expected_source" "$expected_identity"; then
+                if [[ "$swap_kind" == "link" ]]; then
+                    rm -f -- "$dst" || result=1
+                else
+                    rm -rf -- "$dst" || result=1
+                fi
+            else
+                log_error "rollback: destination changed outside this transaction ($dst)"
+                result=1
+                continue
+            fi
+        fi
+
+        if [[ "$had_destination" == "true" ]]; then
+            if path_exists "$rollback"; then
+                current_rollback_identity="$(path_identity "$rollback" 2>/dev/null || true)"
+                if [[ "$current_rollback_identity" == "$rollback_identity" ]]; then
+                    mv -- "$rollback" "$dst" || result=1
+                else
+                    log_error "rollback: preserved destination changed ($rollback)"
+                    result=1
+                fi
+            else
+                log_error "rollback: preserved destination missing ($rollback)"
+                result=1
+            fi
+        fi
+    done
+
+    if [[ "$result" -eq 0 ]]; then
+        printf 'state\trolled-back\n' >> "$TRANSACTION_JOURNAL" || result=1
+    else
+        printf 'state\trollback-failed\n' >> "$TRANSACTION_JOURNAL" || true
+    fi
+    sync_journal || result=1
+    TRANSACTION_ACTIVE=false
+    return "$result"
+}
+
+commit_transaction() {
+    [[ "$TRANSACTION_ACTIVE" == "true" ]] || return 0
+
+    printf 'state\tcommitted\n' >> "$TRANSACTION_JOURNAL"
+    sync_journal
+    TRANSACTION_ACTIVE=false
+
+    local record_kind swap_kind dst rollback had_destination expected_source expected_identity rollback_identity
+    local current_rollback_identity
+    while IFS=$'\t' read -r record_kind swap_kind dst rollback had_destination expected_source expected_identity rollback_identity; do
+        [[ "$record_kind" == "swap" && "$had_destination" == "true" ]] || continue
+        current_rollback_identity="$(path_identity "$rollback" 2>/dev/null || true)"
+        if [[ "$current_rollback_identity" != "$rollback_identity" ]]; then
+            log_warn "commit: preserved destination changed; keeping $rollback"
+        elif ! rm -rf -- "$rollback"; then
+            log_warn "commit: failed to remove rollback sibling $rollback"
+        fi
+    done < "$TRANSACTION_JOURNAL"
+}
+
+handle_failure() {
+    local status="$1"
+
+    trap - ERR INT TERM
+    if [[ "$TRANSACTION_ACTIVE" == "true" && "$TRANSACTION_ROLLING_BACK" == "false" ]]; then
+        TRANSACTION_ROLLING_BACK=true
+        rollback_transaction || log_error "rollback did not complete cleanly; see $TRANSACTION_JOURNAL"
+    fi
+    exit "$status"
+}
+
 backup_path() {
     local path="$1"
     local name="$2"
@@ -259,38 +627,69 @@ backup_path() {
 }
 
 
-remove_stow_conflicts() {
+remove_stow_candidate_conflicts() {
     local src_dir="$1"
-    local dst_dir="$2"
-    local item base target link link_target
+    local candidate_dir="$2"
+    local item base target
+    local -a items=()
 
     shopt -s dotglob nullglob
-    for item in "$src_dir"/*; do
+    items=("$src_dir"/*)
+    shopt -u dotglob nullglob
+    for item in "${items[@]}"; do
         base="$(basename "$item")"
-        target="$dst_dir/$base"
+        target="$candidate_dir/$base"
         if [[ -d "$item" && ! -L "$item" ]]; then
-            if [[ -L "$target" ]]; then
-                rm -f "$target"
-            elif [[ -d "$target" ]]; then
-                remove_stow_conflicts "$item" "$target"
+            if [[ -d "$target" && ! -L "$target" ]]; then
+                remove_stow_candidate_conflicts "$item" "$target"
+            elif path_exists "$target"; then
+                rm -rf -- "$target"
             fi
         else
-            [[ -e "$target" || -L "$target" ]] && rm -f "$target"
+            if path_exists "$target"; then
+                rm -rf -- "$target"
+            fi
         fi
     done
+}
 
-    while IFS= read -r -d '' link; do
-        link_target="$(readlink -m "$link" 2>/dev/null || true)"
-        path_in_repo "$link_target" && rm -f "$link"
-    done < <(find "$dst_dir" -maxdepth 1 -xtype l -print0)
+link_resolves_to() {
+    local path="$1"
+    local expected_source="$2"
+    local actual expected
 
+    [[ -L "$path" ]] || return 1
+    actual="$(readlink -f "$path" 2>/dev/null || true)"
+    expected="$(readlink -f "$expected_source" 2>/dev/null || true)"
+    [[ -n "$actual" && "$actual" == "$expected" ]]
+}
+
+verify_stow_candidate() {
+    local src_dir="$1"
+    local candidate_dir="$2"
+    local item base target
+    local -a items=()
+
+    shopt -s dotglob nullglob
+    items=("$src_dir"/*)
     shopt -u dotglob nullglob
+    for item in "${items[@]}"; do
+        base="$(basename "$item")"
+        target="$candidate_dir/$base"
+        if [[ -d "$item" && ! -L "$item" ]]; then
+            [[ -d "$target" && ! -L "$target" ]] || return 1
+            verify_stow_candidate "$item" "$target" || return 1
+        else
+            link_resolves_to "$target" "$item" || return 1
+        fi
+    done
 }
 
 create_stow_package() {
     local src="$1"
     local dst="$2"
     local name="$3"
+    local parent stage
 
     if [[ ! -d "$src" ]]; then
         log_warn "$name: source not found ($src)"
@@ -302,16 +701,45 @@ create_stow_package() {
         return 0
     fi
 
-    [[ -L "$dst" ]] && rm -f "$dst"
-    mkdir -p "$dst"
-    remove_stow_conflicts "$src" "$dst"
+    validate_transaction_field "stow source" "$src"
+    validate_transaction_field "stow destination" "$dst"
+    validate_transaction_field "stow name" "$name"
+    init_transaction
+    parent="$(dirname "$dst")"
+    mkdir -p "$parent"
+    TRANSACTION_INDEX=$((TRANSACTION_INDEX + 1))
+    stage="$parent/.envcross-stage-${TRANSACTION_ID}-${TRANSACTION_INDEX}"
+    mkdir "$stage"
+    if ! set_private_permissions 700 "$stage"; then
+        rm -rf -- "$stage"
+        return 1
+    fi
 
-    if stow --no-folding -d "$(dirname "$src")" -t "$dst" "$(basename "$src")"; then
-        log_info "$name: stowed -> $dst"
-    else
+    if [[ -d "$dst" ]] && ! cp -a -- "$dst/." "$stage/"; then
+        rm -rf -- "$stage"
+        log_error "$name: failed to stage existing destination"
+        return 1
+    fi
+
+    if ! remove_stow_candidate_conflicts "$src" "$stage"; then
+        rm -rf -- "$stage"
+        log_error "$name: failed to prepare staged destination"
+        return 1
+    fi
+
+    if ! stow --no-folding -d "$(dirname "$src")" -t "$stage" "$(basename "$src")"; then
+        rm -rf -- "$stage"
         log_error "$name: failed to stow"
         return 1
     fi
+
+    if ! verify_stow_candidate "$src" "$stage"; then
+        rm -rf -- "$stage"
+        log_error "$name: staged stow verification failed"
+        return 1
+    fi
+
+    activate_staged_path "tree" "$stage" "-" "$dst" "$src" "$name"
 }
 
 create_file_link() {
@@ -329,15 +757,7 @@ create_file_link() {
         return 0
     fi
 
-    mkdir -p "$(dirname "$dst")"
-    [[ -L "$dst" || -f "$dst" ]] && rm -f "$dst"
-
-    if ln -s "$src" "$dst"; then
-        log_info "$name: linked -> $dst"
-    else
-        log_error "$name: failed to link"
-        return 1
-    fi
+    replace_link_transactionally "$src" "$dst" "$name"
 }
 
 create_path_link() {
@@ -355,20 +775,7 @@ create_path_link() {
         return 0
     fi
 
-    mkdir -p "$(dirname "$dst")"
-
-    if [[ -L "$dst" || -f "$dst" ]]; then
-        rm -f "$dst"
-    elif [[ -d "$dst" ]]; then
-        rm -rf "$dst"
-    fi
-
-    if ln -s "$src" "$dst"; then
-        log_info "$name: linked -> $dst"
-    else
-        log_error "$name: failed to link"
-        return 1
-    fi
+    replace_link_transactionally "$src" "$dst" "$name"
 }
 
 directory_has_entries() {
@@ -399,40 +806,44 @@ link_ai_shared_files() {
     case "$name" in
         claude-code)
             local claude_root="$REPO_ROOT/ai-assistants/.claude"
-            create_file_link "$claude_root/CLAUDE.md" "$HOME/.claude/CLAUDE.md" "claude-rules"
-            create_file_link "$claude_root/settings.json" "$HOME/.claude/settings.json" "claude-settings"
-            create_path_link "$REPO_ROOT/ai-assistants/hooks" "$HOME/.claude/hooks" "claude-hooks"
-            create_path_link "$shared_skills" "$HOME/.claude/skills" "claude-skills"
-            create_file_link "$claude_root/statusline-command.sh" "$HOME/.claude/statusline-command.sh" "claude-statusline"
-            create_optional_path_link "$claude_root/agents" "$HOME/.claude/agents" "claude-agents"
-            create_optional_path_link "$claude_root/rules" "$HOME/.claude/rules" "claude-rules-dir"
-            create_optional_path_link "$claude_root/marketplace" "$HOME/.claude/marketplace" "claude-marketplace"
+            create_file_link "$claude_root/CLAUDE.md" "$HOME/.claude/CLAUDE.md" "claude-rules" || return 1
+            create_file_link "$claude_root/settings.json" "$HOME/.claude/settings.json" "claude-settings" || return 1
+            create_path_link "$REPO_ROOT/ai-assistants/hooks" "$HOME/.claude/hooks" "claude-hooks" || return 1
+            create_path_link "$shared_skills" "$HOME/.claude/skills" "claude-skills" || return 1
+            create_file_link "$claude_root/statusline-command.sh" "$HOME/.claude/statusline-command.sh" "claude-statusline" || return 1
+            create_optional_path_link "$claude_root/agents" "$HOME/.claude/agents" "claude-agents" || return 1
+            create_optional_path_link "$claude_root/rules" "$HOME/.claude/rules" "claude-rules-dir" || return 1
+            create_optional_path_link "$claude_root/marketplace" "$HOME/.claude/marketplace" "claude-marketplace" || return 1
             ;;
         codex)
-            create_file_link "$shared_agents" "$HOME/.codex/AGENTS.md" "codex-rules"
-            create_file_link "$REPO_ROOT/ai-assistants/.codex/config.toml" "$HOME/.codex/config.toml" "codex-config"
-            create_file_link "$REPO_ROOT/ai-assistants/.codex/windows.config.toml" "$HOME/.codex/windows.config.toml" "codex-windows-profile"
-            create_file_link "$REPO_ROOT/ai-assistants/.codex/linux.config.toml" "$HOME/.codex/linux.config.toml" "codex-linux-profile"
-            create_path_link "$REPO_ROOT/ai-assistants/.codex/agents" "$HOME/.codex/agents" "codex-agents"
-            create_path_link "$shared_skills" "$HOME/.codex/skills" "codex-skills"
+            create_file_link "$shared_agents" "$HOME/.codex/AGENTS.md" "codex-rules" || return 1
+            create_file_link "$REPO_ROOT/ai-assistants/.codex/config.toml" "$HOME/.codex/config.toml" "codex-config" || return 1
+            create_file_link "$REPO_ROOT/ai-assistants/.codex/windows.config.toml" "$HOME/.codex/windows.config.toml" "codex-windows-profile" || return 1
+            create_file_link "$REPO_ROOT/ai-assistants/.codex/linux.config.toml" "$HOME/.codex/linux.config.toml" "codex-linux-profile" || return 1
+            create_file_link "$REPO_ROOT/ai-assistants/.codex/hooks.json" "$HOME/.codex/hooks.json" "codex-hooks" || return 1
+            create_path_link "$REPO_ROOT/ai-assistants/.codex/agents" "$HOME/.codex/agents" "codex-agents" || return 1
+            create_path_link "$shared_skills" "$HOME/.codex/skills" "codex-skills" || return 1
+            ;;
+        grok)
+            create_file_link "$shared_agents" "$HOME/.grok/AGENTS.md" "grok-rules" || return 1
             ;;
         opencode)
             local opencode_root="$REPO_ROOT/ai-assistants/.opencode"
-            create_file_link "$shared_agents" "$HOME/.config/opencode/AGENTS.md" "opencode-rules"
-            create_file_link "$opencode_root/opencode.json" "$HOME/.config/opencode/opencode.json" "opencode-config"
-            create_file_link "$opencode_root/oh-my-opencode-slim.json" "$HOME/.config/opencode/oh-my-opencode-slim.json" "opencode-omc-slim"
-            create_file_link "$opencode_root/tui.json" "$HOME/.config/opencode/tui.json" "opencode-tui"
-            create_path_link "$shared_skills" "$HOME/.config/opencode/skills" "opencode-skills"
-            create_path_link "$opencode_root/agents" "$HOME/.config/opencode/agents" "opencode-agents"
-            create_path_link "$opencode_root/commands" "$HOME/.config/opencode/commands" "opencode-commands"
-            create_path_link "$opencode_root/plugins" "$HOME/.config/opencode/plugins" "opencode-plugins"
-            create_file_link "$opencode_root/enforce-shell-policy.sh" "$HOME/.config/opencode/enforce-shell-policy.sh" "opencode-shell-policy"
+            create_file_link "$shared_agents" "$HOME/.config/opencode/AGENTS.md" "opencode-rules" || return 1
+            create_file_link "$opencode_root/opencode.json" "$HOME/.config/opencode/opencode.json" "opencode-config" || return 1
+            create_file_link "$opencode_root/oh-my-opencode-slim.json" "$HOME/.config/opencode/oh-my-opencode-slim.json" "opencode-omc-slim" || return 1
+            create_file_link "$opencode_root/tui.json" "$HOME/.config/opencode/tui.json" "opencode-tui" || return 1
+            create_path_link "$shared_skills" "$HOME/.config/opencode/skills" "opencode-skills" || return 1
+            create_path_link "$opencode_root/agents" "$HOME/.config/opencode/agents" "opencode-agents" || return 1
+            create_path_link "$opencode_root/commands" "$HOME/.config/opencode/commands" "opencode-commands" || return 1
+            create_path_link "$opencode_root/plugins" "$HOME/.config/opencode/plugins" "opencode-plugins" || return 1
+            create_file_link "$opencode_root/enforce-shell-policy.sh" "$HOME/.config/opencode/enforce-shell-policy.sh" "opencode-shell-policy" || return 1
             ;;
         hermes-agent)
             local hermes_root="$REPO_ROOT/ai-assistants/.hermes"
-            create_file_link "$hermes_root/SOUL.md" "$HOME/.hermes/SOUL.md" "hermes-soul"
-            create_file_link "$hermes_root/config.yaml" "$HOME/.hermes/config.yaml" "hermes-config"
-            create_path_link "$hermes_root/hooks" "$HOME/.hermes/hooks" "hermes-hooks"
+            create_file_link "$hermes_root/SOUL.md" "$HOME/.hermes/SOUL.md" "hermes-soul" || return 1
+            create_file_link "$hermes_root/config.yaml" "$HOME/.hermes/config.yaml" "hermes-config" || return 1
+            create_path_link "$hermes_root/hooks" "$HOME/.hermes/hooks" "hermes-hooks" || return 1
             ;;
     esac
 }
@@ -582,21 +993,16 @@ step_symlink_configs() {
                 local src_dir="$REPO_ROOT/yazi/$dir"
                 local dst_dir="$yazi_dst/$dir"
                 if [[ -d "$src_dir" ]]; then
-                    if [[ "$DRY_RUN" == "true" ]]; then
-                        log_dry "Would link dir: yazi/$dir -> $dst_dir"
-                    else
-                        [[ -L "$dst_dir" ]] && rm -f "$dst_dir"
-                        [[ -d "$dst_dir" ]] && rm -rf "$dst_dir"
-                        ln -sf "$src_dir" "$dst_dir"
-                        log_info "yazi: linked dir $dir"
-                    fi
+                    create_path_link "$src_dir" "$dst_dir" "yazi-$dir"
                 fi
             done
         fi
 
-        case "$name" in claude-code|codex|opencode|hermes-agent) link_ai_shared_files "$name" ;; esac
+        case "$name" in claude-code|codex|grok|opencode|hermes-agent) link_ai_shared_files "$name" ;; esac
         case "$name" in claude-code) ensure_claude_local_plugin ;; esac
     done
+
+    commit_transaction
 }
 
 show_summary() {
@@ -663,5 +1069,9 @@ main() {
     step_symlink_configs
     show_summary
 }
+
+trap 'handle_failure "$?"' ERR
+trap 'handle_failure 130' INT
+trap 'handle_failure 143' TERM
 
 main "$@"
